@@ -6,6 +6,7 @@ use crate::{
     config::Config,
 };
 
+mod action;
 mod args;
 mod config;
 
@@ -35,7 +36,10 @@ fn main() -> Result<()> {
         }
     };
 
-    println!("{:#?}", config);
+    // Run each action (actions with `on_change` commands will spawn a thread).
+    for (name, action) in config.actions.iter().flatten() {
+        action::run(&name, &action)?;
+    }
 
     Ok(())
 }

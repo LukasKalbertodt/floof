@@ -1,6 +1,7 @@
 //! Configuration, usually loaded from `watchboi.toml`.
 
 use std::{
+    fmt,
     fs,
     path::Path,
 };
@@ -15,20 +16,20 @@ pub const DEFAULT_FILENAME: &str = "watchboi.toml";
 /// The root configuration object.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    actions: Option<HashMap<String, Action>>,
-    proxy: Option<Proxy>,
+    pub actions: Option<HashMap<String, Action>>,
+    pub proxy: Option<Proxy>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Action {
-    on_start: Option<Vec<Command>>,
-    watch: Option<Vec<String>>,
-    on_change: Option<Vec<Command>>
+    pub on_start: Option<Vec<Command>>,
+    pub watch: Option<Vec<String>>,
+    pub on_change: Option<Vec<Command>>
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Proxy {
-    inject_js: bool,
+    pub inject_js: bool,
 }
 
 /// A command specification (a application name/path and its arguments).
@@ -77,6 +78,13 @@ impl Action {
                 (otherwise it would never run)");
         }
 
+        for command in self.on_start.iter().flatten() {
+            command.validate().context("failed validation of 'on_start' commands")?;
+        }
+        for command in self.on_change.iter().flatten() {
+            command.validate().context("failed validation of 'on_change' commands")?;
+        }
+
         Ok(())
     }
 }
@@ -84,6 +92,54 @@ impl Action {
 impl Proxy {
     fn validate(&self) -> Result<()> {
         Ok(())
+    }
+}
+
+impl Command {
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::Simple(s) => {
+                if s.trim().is_empty() {
+                    bail!("empty command is invalid");
+                }
+            }
+            Self::Explicit(v) => {
+                if v.is_empty() {
+                    bail!("empty command is invalid");
+                }
+                if v.iter().any(|s| s.trim().is_empty()) {
+                    bail!("segment of command is empty (all segments must be non-empty)");
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Command::Simple(s) => s.fmt(f),
+            Command::Explicit(v) => {
+                let mut first = true;
+                for part in v {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, " ")?;
+                    };
+
+                    if part.contains(char::is_whitespace) {
+                        write!(f, r#""{}""#, part)?;
+                    } else {
+                        write!(f, "{}", part)?;
+                    }
+                }
+
+                Ok(())
+            }
+        }
     }
 }
 
