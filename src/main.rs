@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{sync::mpsc::channel, path::Path};
 use anyhow::{bail, Context, Result};
 use structopt::StructOpt;
 use crate::{
@@ -37,8 +37,17 @@ fn main() -> Result<()> {
     };
 
     // Run each action (actions with `on_change` commands will spawn a thread).
-    for (name, action) in config.actions.iter().flatten() {
-        action::run(&name, &action)?;
+    let (errors_tx, errors_rx) = channel();
+    for (name, action) in config.actions.into_iter().flatten() {
+        action::run(name, action, &errors_tx)?;
+    }
+    drop(errors_tx);
+
+    match errors_rx.recv() {
+        // There are no thread running, so we can just quit.
+        Err(_) => println!("----- No action has 'on_change' commands, we're done here"),
+        // A thread returned an error.
+        Ok(e) => return Err(e),
     }
 
     Ok(())
