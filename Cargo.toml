@@ -1,0 +1,13 @@
+[package]
+name = "watchboi"
+version = "0.1.0"
+authors = ["Lukas Kalbertodt <lukas.kalbertodt@gmail.com>"]
+edition = "2018"
+
+
+[dependencies]
+anyhow = "1.0"
+notify = "4.0"
+serde = { version = "1.0", features=["derive"] }
+structopt = "0.3"
+toml = "0.5"
