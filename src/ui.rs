@@ -84,7 +84,7 @@ impl Ui {
             buf.set_color(&icon())?;
             write!(buf, " […] ")?;
             buf.set_color(&magenta())?;
-            writeln!(buf, "listening on 'http://{}': ", addr)?;
+            writeln!(buf, "listening on 'http://{}'", addr)?;
 
             Ok(())
         });

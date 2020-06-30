@@ -63,7 +63,7 @@ pub fn run(
         }
     }
 
-    if action.on_change.is_some() {
+    if action.on_change.is_some() || action.run.is_some() {
         let (trigger_tx, trigger_rx) = channel();
 
         {
@@ -124,9 +124,12 @@ fn watch(
 
     ui.watching(&name, &watched_paths);
 
+    // We send one initial trigger to already run all `run` tasks.
+    triggers.send(Instant::now()).expect("executor thread unexpectedly stopped");
+
+    // Send one trigger for each raw watch event.
     for _ in rx {
-        let now = Instant::now();
-        triggers.send(now).expect("executor thread unexpectedly stopped");
+        triggers.send(Instant::now()).expect("executor thread unexpectedly stopped");
     }
 
     // The loop above should loop forever.
@@ -144,11 +147,17 @@ fn executor(
         panic!("watcher thread unexpectedly stopped");
     };
 
-    let on_change = action.on_change.expect("action.on_change is None");
+    let run_tasks = action.run.unwrap_or_default();
+    let all_tasks = run_tasks.clone().into_iter()
+        .chain(action.on_change.unwrap_or_default())
+        .collect::<Vec<_>>();
 
+    for (i, mut trigger_time) in triggers.iter().enumerate() {
+        let is_artificial = i == 0;
 
-    for mut trigger_time in triggers.iter() {
-        ui.change_detected(&name);
+        if !is_artificial {
+            ui.change_detected(&name);
+        }
 
         'debounce: loop {
             macro_rules! restart {
@@ -173,8 +182,14 @@ fn executor(
             };
 
             // Start executing the commands
-            ui.run_on_change_handlers(&name);
-            for command in &on_change {
+            let tasks = if is_artificial {
+                &run_tasks
+            } else {
+                ui.run_on_change_handlers(&name);
+                &all_tasks
+            };
+
+            for command in tasks {
                 ui.run_command("on_change", command);
                 let mut child = command.to_std(&action.base).spawn()?;
 

@@ -27,9 +27,10 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Action {
     pub base: Option<String>,
-    pub on_start: Option<Vec<Command>>,
     pub watch: Option<Vec<String>>,
-    pub on_change: Option<Vec<Command>>
+    pub run: Option<Vec<Command>>,
+    pub on_start: Option<Vec<Command>>,
+    pub on_change: Option<Vec<Command>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
