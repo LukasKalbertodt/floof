@@ -117,7 +117,7 @@ fn executor(on_change: Vec<config::Command>, triggers: Receiver<Instant>) -> Res
             }
 
             let since_trigger = trigger_time.elapsed();
-            if let Some(duration) = DEBOUNCE_DURATION.checked_sub(since_trigger) {
+            if let Some(duration) = debounce_duration.checked_sub(since_trigger) {
                 thread::sleep(duration);
             }
 
@@ -163,5 +163,4 @@ fn executor(on_change: Vec<config::Command>, triggers: Receiver<Instant>) -> Res
     on_disconnect();
 }
 
-const DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
-const BUSY_WAIT_DURATION: Duration =  Duration::from_millis(20);
+const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);

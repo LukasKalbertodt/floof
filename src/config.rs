@@ -7,17 +7,20 @@ use std::{
 };
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::{time::Duration, collections::HashMap};
 
 
 /// The default filename from which to load the configuration.
 pub const DEFAULT_FILENAME: &str = "watchboi.toml";
 
+pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(350);
+
 /// The root configuration object.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub actions: Option<HashMap<String, Action>>,
-    pub proxy: Option<Proxy>,
+    pub http: Option<Http>,
+    pub watcher: Option<Watcher>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -29,8 +32,12 @@ pub struct Action {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Proxy {
-    pub inject_js: bool,
+pub struct Http {
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Watcher {
+    pub debounce: Option<u32>,
 }
 
 /// A command specification (a application name/path and its arguments).
@@ -60,8 +67,11 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        if let Some(proxy) = &self.proxy {
-            proxy.validate()?;
+        if let Some(http) = &self.http {
+            http.validate()?;
+        }
+        if let Some(watcher) = &self.watcher {
+            watcher.validate()?;
         }
 
         for (key, action) in self.actions.iter().flatten() {
@@ -90,7 +100,13 @@ impl Action {
     }
 }
 
-impl Proxy {
+impl Http {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl Watcher {
     fn validate(&self) -> Result<()> {
         Ok(())
     }
