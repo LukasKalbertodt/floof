@@ -4,12 +4,13 @@ use structopt::StructOpt;
 use crate::{
     args::Args,
     config::Config,
+    ui::Ui,
 };
 
 mod action;
 mod args;
 mod config;
-
+mod ui;
 
 
 fn main() -> Result<()> {
@@ -36,10 +37,14 @@ fn main() -> Result<()> {
         }
     };
 
-    // Run each action (actions with `on_change` commands will spawn a thread).
+    // We collect errors on the main thread, exiting when the first one arrives.
     let (errors_tx, errors_rx) = channel();
+
+    let ui = Ui::new(errors_tx.clone());
+
+    // Run each action (actions with `on_change` commands will spawn a thread).
     for (name, action) in config.actions.into_iter().flatten() {
-        action::run(name, action, &errors_tx)?;
+        action::run(name, action, &errors_tx, &config.watcher, ui.clone())?;
     }
     drop(errors_tx);
 

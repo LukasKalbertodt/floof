@@ -7,7 +7,10 @@ use std::{
 use anyhow::{bail, Context, Error, Result};
 use notify::{Watcher, RecursiveMode};
 
-use crate::config;
+use crate::{
+    config,
+    ui::Ui,
+};
 
 
 impl config::Command {
@@ -40,13 +43,17 @@ impl config::Command {
     }
 }
 
-pub fn run(name: String, action: config::Action, errors: &Sender<Error>) -> Result<()> {
+pub fn run(
+    name: String,
+    action: config::Action,
+    errors: &Sender<Error>,
+    watcher_config: &Option<config::Watcher>,
+    ui: Ui,
+) -> Result<()> {
     // Run all commands that we are supposed to run on start.
     if let Some(on_start_commands) = &action.on_start {
-        println!("===== Running 'on_start' commands for action '{}'", name);
-
         for command in on_start_commands {
-            println!("----- Running: {}", command);
+            ui.run_command("on_start", command);
             let status = command.to_std(&action.base).status()
                 .context(format!("failed to run `{}`", command))?;
 
@@ -59,38 +66,63 @@ pub fn run(name: String, action: config::Action, errors: &Sender<Error>) -> Resu
     if action.on_change.is_some() {
         let (trigger_tx, trigger_rx) = channel();
 
-        let watch_errors = errors.clone();
-        let watched_paths = action.watch.expect("action.watch is None");
-        thread::spawn(move || {
-            if let Err(e) = watch(name, &watched_paths, trigger_tx) {
-                let _ = watch_errors.send(e);
-            }
-        });
+        {
+            let errors = errors.clone();
+            let ui = ui.clone();
+            let name = name.clone();
+            let action = action.clone();
+            thread::spawn(move || {
+                if let Err(e) = watch(name, action, trigger_tx, ui) {
+                    let _ = errors.send(e);
+                }
+            });
+        }
 
-        let executor_errors = errors.clone();
-        let on_change = action.on_change.expect("action.on_change is None");
-        thread::spawn(move || {
-            if let Err(e) = executor(on_change, trigger_rx) {
-                let _ = executor_errors.send(e);
-            }
-        });
+        {
+            let errors = errors.clone();
+            let ui = ui.clone();
+            let name = name.clone();
+            let action = action.clone();
+            let debounce_duration = watcher_config.as_ref()
+                .and_then(|c| c.debounce)
+                .map(|ms| Duration::from_millis(ms as u64))
+                .unwrap_or(config::DEFAULT_DEBOUNCE_DURATION);
+            thread::spawn(move || {
+                if let Err(e) = executor(name, action, trigger_rx, debounce_duration, ui) {
+                    let _ = errors.send(e);
+                }
+            });
+        }
     }
 
     Ok(())
 }
 
-fn watch(name: String, watched_paths: &[String], triggers: Sender<Instant>) -> Result<()> {
+fn watch(
+    name: String,
+    action: config::Action,
+    triggers: Sender<Instant>,
+    ui: Ui,
+) -> Result<()> {
+    let watched_paths = action.watch.expect("action.watch is None");
+
     let (tx, rx) = channel();
     let mut watcher = notify::raw_watcher(tx).unwrap();
 
-    for path in watched_paths {
-        let path = Path::new(path);
+    for path in &watched_paths {
+        let path = match &action.base {
+            Some(base) => Path::new(base).join(path),
+            None => Path::new(path).into(),
+        };
+
         if !path.exists() {
             bail!("path '{}' of action '{}' does not exist", path.display(), name);
         }
 
-        watcher.watch(path, RecursiveMode::Recursive)?;
+        watcher.watch(&path, RecursiveMode::Recursive)?;
     }
+
+    ui.watching(&name, &watched_paths);
 
     for _ in rx {
         let now = Instant::now();
@@ -101,13 +133,23 @@ fn watch(name: String, watched_paths: &[String], triggers: Sender<Instant>) -> R
     bail!("watcher unexpectedly stopped");
 }
 
-fn executor(on_change: Vec<config::Command>, triggers: Receiver<Instant>) -> Result<()> {
+fn executor(
+    name: String,
+    action: config::Action,
+    triggers: Receiver<Instant>,
+    debounce_duration: Duration,
+    ui: Ui,
+) -> Result<()> {
     let on_disconnect = || -> ! {
         panic!("watcher thread unexpectedly stopped");
     };
 
+    let on_change = action.on_change.expect("action.on_change is None");
+
 
     for mut trigger_time in triggers.iter() {
+        ui.change_detected(&name);
+
         'debounce: loop {
             macro_rules! restart {
                 ($trigger_time:expr) => {{
@@ -131,9 +173,10 @@ fn executor(on_change: Vec<config::Command>, triggers: Receiver<Instant>) -> Res
             };
 
             // Start executing the commands
+            ui.run_on_change_handlers(&name);
             for command in &on_change {
-                println!("----- Running: {}", command);
-                let mut child = command.to_std().spawn()?;
+                ui.run_command("on_change", command);
+                let mut child = command.to_std(&action.base).spawn()?;
 
                 // We have a busy loop here: We regularly check if new triggers
                 // arrived, in which case we will kill the command and restart the
