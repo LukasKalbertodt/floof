@@ -13,7 +13,7 @@ use crate::config;
 impl config::Command {
     /// Creates a `std::process::Command` from the command specified in the
     /// configuration.
-    fn to_std(&self) -> Command {
+    fn to_std(&self, working_dir: &Option<String>) -> Command {
         let (program, args) = match self {
             config::Command::Simple(s) => {
                 let mut split = s.split_whitespace();
@@ -33,6 +33,9 @@ impl config::Command {
 
         let mut command = Command::new(&program);
         command.args(args);
+        if let Some(working_dir) = working_dir {
+            command.current_dir(working_dir);
+        }
         command
     }
 }
@@ -44,7 +47,7 @@ pub fn run(name: String, action: config::Action, errors: &Sender<Error>) -> Resu
 
         for command in on_start_commands {
             println!("----- Running: {}", command);
-            let status = command.to_std().status()
+            let status = command.to_std(&action.base).status()
                 .context(format!("failed to run `{}`", command))?;
 
             if !status.success() {
