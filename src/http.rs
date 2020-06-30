@@ -4,7 +4,6 @@ use hyper::{
     header,
     service::{make_service_fn, service_fn}
 };
-use kuchiki::traits::*;
 
 use crate::{
     config,
@@ -63,19 +62,10 @@ async fn proxy(
             if content_type.is_some() && content_type.unwrap().as_ref().starts_with(b"text/html") {
                 let (parts, body) = response.into_parts();
                 let body = hyper::body::to_bytes(body).await?;
-                let s = std::str::from_utf8(&body)?;
-                let document = kuchiki::parse_html().one(s);
-                let script = format!("<script>{}</script>", include_str!("inject.js"));
-                let script = kuchiki::parse_html().one(&*script);
 
-                let head = document.select("head").unwrap().next().unwrap();
-                // let () = head;
-                head.as_node().append(script);
-
-                let mut new_body_data = Vec::new();
-                document.serialize(&mut new_body_data).expect("failed to write into vector");
-                let new_len = new_body_data.len();
-                let new_body = Body::from(new_body_data);
+                let new_body = inject_into(&body);
+                let new_len = new_body.len();
+                let new_body = Body::from(new_body);
 
                 let mut response = Response::from_parts(parts, new_body);
                 if let Some(content_len) = response.headers_mut().get_mut(header::CONTENT_LENGTH) {
@@ -99,4 +89,29 @@ async fn proxy(
     };
 
     Ok(response)
+}
+
+fn inject_into(input: &[u8]) -> Vec<u8> {
+    let mut body_close_idx = None;
+    let mut inside_comment = false;
+    for i in 0..input.len() {
+        let rest = &input[i..];
+        if !inside_comment && rest.starts_with(b"</body>") {
+            body_close_idx = Some(i);
+        } else if !inside_comment && rest.starts_with(b"<!--") {
+            inside_comment = true;
+        } else if inside_comment && rest.starts_with(b"-->") {
+            inside_comment = false;
+        }
+    }
+
+    let script = format!("<script>\n{}</script>", include_str!("inject.js"));
+
+    // If we haven't found a closing body tag, we just insert our JS at the very
+    // end.
+    let insert_idx = body_close_idx.unwrap_or(input.len());
+    let mut out = input[..insert_idx].to_vec();
+    out.extend_from_slice(script.as_bytes());
+    out.extend_from_slice(&input[insert_idx..]);
+    out
 }
