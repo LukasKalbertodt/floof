@@ -1,4 +1,4 @@
-use std::{sync::mpsc::channel, path::Path};
+use std::{sync::mpsc::channel, path::Path, thread};
 use anyhow::{bail, Context, Result};
 use structopt::StructOpt;
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
 mod action;
 mod args;
 mod config;
+mod http;
 mod ui;
 
 
@@ -42,6 +43,17 @@ fn main() -> Result<()> {
 
     let ui = Ui::new(errors_tx.clone());
 
+    if let Some(http_config) = &config.http {
+        let http_config = http_config.clone();
+        let errors_tx = errors_tx.clone();
+        let ui = ui.clone();
+        thread::spawn(move || {
+            if let Err(e) = http::run(&http_config, ui) {
+                let _ = errors_tx.send(e);
+            }
+        });
+    }
+
     // Run each action (actions with `on_change` commands will spawn a thread).
     for (name, action) in config.actions.into_iter().flatten() {
         action::run(name, action, &errors_tx, &config.watcher, ui.clone())?;
@@ -50,6 +62,7 @@ fn main() -> Result<()> {
 
     match errors_rx.recv() {
         // There are no thread running, so we can just quit.
+        // TODO: use UI
         Err(_) => println!("----- No action has 'on_change' commands, we're done here"),
         // A thread returned an error.
         Ok(e) => return Err(e),

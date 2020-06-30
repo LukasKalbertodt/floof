@@ -3,6 +3,7 @@
 use std::{
     fmt,
     fs,
+    net::SocketAddr,
     path::Path,
 };
 use anyhow::{bail, Context, Result};
@@ -33,6 +34,8 @@ pub struct Action {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Http {
+    pub addr: Option<SocketAddr>,
+    pub proxy: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -101,6 +104,10 @@ impl Action {
 }
 
 impl Http {
+    pub fn addr(&self) -> SocketAddr {
+        self.addr.unwrap_or(([127, 0, 0, 1], 8030).into())
+    }
+
     fn validate(&self) -> Result<()> {
         Ok(())
     }

@@ -1,6 +1,6 @@
 use std::{
     io::{self, Write},
-    sync::{atomic::{Ordering, AtomicBool}, mpsc::Sender, Arc}, fmt,
+    sync::{atomic::{Ordering, AtomicBool}, mpsc::Sender, Arc}, fmt, net::SocketAddr,
 };
 use anyhow::Error;
 use termcolor::{Buffer, BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
@@ -58,7 +58,7 @@ impl Ui {
             buf.set_color(&icon())?;
             write!(buf, " […] ")?;
             buf.set_color(&magenta())?;
-            write!(buf, "now watching for '{}': ", action)?;
+            write!(buf, "watching for '{}': ", action)?;
 
             const MAX_PATHS: usize = 3;
             for (i, path) in paths.iter().enumerate() {
@@ -72,6 +72,19 @@ impl Ui {
                     _ => write!(buf, ", `{}`", path)?,
                 }
             }
+
+            Ok(())
+        });
+    }
+
+    pub fn listening(&self, addr: &SocketAddr) {
+        self.print_line(false, |buf| {
+            buf.set_color(&magenta())?;
+            write!(buf, "{}", PREFIX)?;
+            buf.set_color(&icon())?;
+            write!(buf, " […] ")?;
+            buf.set_color(&magenta())?;
+            writeln!(buf, "listening on 'http://{}': ", addr)?;
 
             Ok(())
         });
