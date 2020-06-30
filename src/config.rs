@@ -37,6 +37,7 @@ pub struct Action {
 pub struct Http {
     pub addr: Option<SocketAddr>,
     pub proxy: Option<String>,
+    pub auto_reload: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
