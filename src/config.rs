@@ -36,8 +36,9 @@ pub struct Action {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Http {
     pub addr: Option<SocketAddr>,
-    pub proxy: Option<String>,
+    pub proxy: Option<SocketAddr>,
     pub auto_reload: Option<bool>,
+    pub ws_addr: Option<SocketAddr>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +109,14 @@ impl Action {
 impl Http {
     pub fn addr(&self) -> SocketAddr {
         self.addr.unwrap_or(([127, 0, 0, 1], 8030).into())
+    }
+
+    pub fn auto_reload(&self) -> bool {
+        self.auto_reload.unwrap_or(true)
+    }
+
+    pub fn ws_addr(&self) -> SocketAddr {
+        self.ws_addr.unwrap_or(([127, 0, 0, 1], 8031).into())
     }
 
     fn validate(&self) -> Result<()> {

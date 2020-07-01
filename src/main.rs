@@ -1,4 +1,4 @@
-use std::{sync::mpsc::channel, path::Path, thread};
+use std::{sync::mpsc::channel, path::Path};
 use anyhow::{bail, Context, Result};
 use structopt::StructOpt;
 use crate::{
@@ -40,23 +40,17 @@ fn main() -> Result<()> {
 
     // We collect errors on the main thread, exiting when the first one arrives.
     let (errors_tx, errors_rx) = channel();
+    let (refresh_tx, refresh_rx) = channel();
 
     let ui = Ui::new(errors_tx.clone());
 
     if let Some(http_config) = &config.http {
-        let http_config = http_config.clone();
-        let errors_tx = errors_tx.clone();
-        let ui = ui.clone();
-        thread::spawn(move || {
-            if let Err(e) = http::run(&http_config, ui) {
-                let _ = errors_tx.send(e);
-            }
-        });
+        http::run(&http_config, ui.clone(), errors_tx.clone(), refresh_rx)?;
     }
 
     // Run each action (actions with `on_change` commands will spawn a thread).
     for (name, action) in config.actions.into_iter().flatten() {
-        action::run(name, action, &errors_tx, &config.watcher, ui.clone())?;
+        action::run(name, action, &errors_tx, &config.watcher, refresh_tx.clone(), ui.clone())?;
     }
     drop(errors_tx);
 

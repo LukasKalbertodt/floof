@@ -1,30 +1,65 @@
-use anyhow::{bail, Result};
+use std::{
+    net::{SocketAddr, TcpListener, TcpStream},
+    sync::{mpsc::{Receiver, Sender}, Arc, Mutex},
+    thread, time::{Duration, Instant},
+};
+use anyhow::{bail, Error, Result};
 use hyper::{
     Body, Client, Request, Response, Server, Uri, StatusCode,
     header,
     service::{make_service_fn, service_fn}
 };
+use tungstenite::WebSocket;
 
 use crate::{
     config,
     ui::Ui,
 };
-use std::sync::Arc;
 
+
+pub fn run(
+    config: &config::Http,
+    ui: Ui,
+    errors_tx: Sender<Error>,
+    refresh: Receiver<()>,
+) -> Result<()> {
+    {
+        let config = config.clone();
+        let ui = ui.clone();
+        let errors_tx = errors_tx.clone();
+        thread::spawn(move || {
+            if let Err(e) = run_server(&config, ui) {
+                let _ = errors_tx.send(e);
+            }
+        });
+    }
+
+    if config.auto_reload() {
+        let config = config.clone();
+        let ui = ui.clone();
+        let errors_tx = errors_tx.clone();
+        thread::spawn(move || {
+            if let Err(e) = serve_ws(&config, ui, refresh) {
+                let _ = errors_tx.send(e);
+            }
+        });
+    }
+
+    Ok(())
+}
 
 #[tokio::main]
-pub async fn run(config: &config::Http, ui: Ui) -> Result<()> {
+pub async fn run_server(config: &config::Http, ui: Ui) -> Result<()> {
     let addr = config.addr();
+    let ws_addr = config.ws_addr();
 
-    let service = if let Some(proxy_target) = &config.proxy {
-        let target = Arc::new(proxy_target.clone());
-        let auto_reload = config.auto_reload.unwrap_or(true);
+    let service = if let Some(proxy_target) = config.proxy {
+        let auto_reload = config.auto_reload();
 
         make_service_fn(move |_| {
-            let target = target.clone();
             async move {
                 Ok::<_, hyper::Error>(service_fn(move |req| {
-                    proxy(req, target.clone(), auto_reload)
+                    proxy(req, proxy_target, ws_addr, auto_reload)
                 }))
             }
         })
@@ -43,12 +78,13 @@ pub async fn run(config: &config::Http, ui: Ui) -> Result<()> {
 
 async fn proxy(
     mut req: Request<Body>,
-    target: Arc<String>,
+    target: SocketAddr,
+    ws_addr: SocketAddr,
     auto_reload: bool,
 ) -> Result<Response<Body>> {
     let uri = Uri::builder()
         .scheme("http")
-        .authority(target.as_str())
+        .authority(target.to_string().as_str())
         .path_and_query(req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or(""))
         .build()
         .expect("failed to build URI");
@@ -63,7 +99,7 @@ async fn proxy(
                 let (parts, body) = response.into_parts();
                 let body = hyper::body::to_bytes(body).await?;
 
-                let new_body = inject_into(&body);
+                let new_body = inject_into(&body, ws_addr);
                 let new_len = new_body.len();
                 let new_body = Body::from(new_body);
 
@@ -91,7 +127,7 @@ async fn proxy(
     Ok(response)
 }
 
-fn inject_into(input: &[u8]) -> Vec<u8> {
+fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
     let mut body_close_idx = None;
     let mut inside_comment = false;
     for i in 0..input.len() {
@@ -105,7 +141,9 @@ fn inject_into(input: &[u8]) -> Vec<u8> {
         }
     }
 
-    let script = format!("<script>\n{}</script>", include_str!("inject.js"));
+    let js = include_str!("inject.js")
+        .replace("INSERT_PORT_HERE_KTHXBYE", &ws_addr.port().to_string());
+    let script = format!("<script>\n{}</script>", js);
 
     // If we haven't found a closing body tag, we just insert our JS at the very
     // end.
@@ -114,4 +152,55 @@ fn inject_into(input: &[u8]) -> Vec<u8> {
     out.extend_from_slice(script.as_bytes());
     out.extend_from_slice(&input[insert_idx..]);
     out
+}
+
+fn serve_ws(config: &config::Http, ui: Ui, refresh: Receiver<()>) -> Result<()> {
+    let sockets = Arc::new(Mutex::new(Vec::<WebSocket<_>>::new()));
+
+    // Start thread that listens for incoming refresh requests.
+    {
+        let proxy_target = config.proxy;
+        let sockets = sockets.clone();
+        thread::spawn(move || {
+            for _ in refresh {
+                if let Some(target) = proxy_target {
+                    wait_until_socket_open(target);
+                }
+
+                // All connections are closed when the `TcpStream` inside those
+                // `WebSocket` is dropped.
+                sockets.lock().unwrap().clear();
+            }
+        });
+    }
+
+    // Listen for new WS connections, accept them and push them in the vector.
+    let server = TcpListener::bind(config.ws_addr())?;
+    ui.listening_ws(&config.ws_addr());
+    for stream in server.incoming() {
+        let websocket = tungstenite::accept(stream?)?;
+        sockets.lock().unwrap().push(websocket);
+    }
+
+    Ok(())
+}
+
+fn wait_until_socket_open(target: SocketAddr) {
+    const POLL_PERIOD: Duration = Duration::from_millis(20);
+    const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+
+    let start_wait = Instant::now();
+
+    while start_wait.elapsed() < PORT_WAIT_TIMEOUT {
+        let before_connect = Instant::now();
+        if TcpStream::connect_timeout(&target, POLL_PERIOD).is_ok() {
+            return;
+        }
+
+        if let Some(remaining) = POLL_PERIOD.checked_sub(before_connect.elapsed()) {
+            thread::sleep(remaining);
+        }
+    }
+
+    println!("WARNING");
 }

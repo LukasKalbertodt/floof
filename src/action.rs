@@ -48,6 +48,7 @@ pub fn run(
     action: config::Action,
     errors: &Sender<Error>,
     watcher_config: &Option<config::Watcher>,
+    refresh: Sender<()>,
     ui: Ui,
 ) -> Result<()> {
     // Run all commands that we are supposed to run on start.
@@ -88,7 +89,7 @@ pub fn run(
                 .map(|ms| Duration::from_millis(ms as u64))
                 .unwrap_or(config::DEFAULT_DEBOUNCE_DURATION);
             thread::spawn(move || {
-                if let Err(e) = executor(name, action, trigger_rx, debounce_duration, ui) {
+                if let Err(e) = executor(name, action, trigger_rx, debounce_duration, refresh, ui) {
                     let _ = errors.send(e);
                 }
             });
@@ -141,6 +142,7 @@ fn executor(
     action: config::Action,
     triggers: Receiver<Instant>,
     debounce_duration: Duration,
+    refresh: Sender<()>,
     ui: Ui,
 ) -> Result<()> {
     let on_disconnect = || -> ! {
@@ -189,6 +191,8 @@ fn executor(
                 &all_tasks
             };
 
+            // TODO: only send signal of autorefresh is on
+            let _ = refresh.send(());
             for command in tasks {
                 ui.run_command("on_change", command);
                 let mut child = command.to_std(&action.base).spawn()?;

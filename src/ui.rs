@@ -90,6 +90,19 @@ impl Ui {
         });
     }
 
+    pub fn listening_ws(&self, addr: &SocketAddr) {
+        self.print_line(false, |buf| {
+            buf.set_color(&magenta())?;
+            write!(buf, "{}", PREFIX)?;
+            buf.set_color(&icon())?;
+            write!(buf, " […] ")?;
+            buf.set_color(&magenta())?;
+            writeln!(buf, "websockets listening on 'ws://{}'", addr)?;
+
+            Ok(())
+        });
+    }
+
     pub fn change_detected(&self, action: &str) {
         self.print_line(false, |buf| {
             buf.set_color(&bold_blue())?;
