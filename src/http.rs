@@ -1,9 +1,9 @@
 use std::{
     net::{SocketAddr, TcpListener, TcpStream},
-    sync::{mpsc::{Receiver, Sender}, Arc, Mutex},
+    sync::{mpsc::Receiver, Arc, Mutex},
     thread, time::{Duration, Instant},
 };
-use anyhow::{bail, Error, Result};
+use anyhow::{bail, Result};
 use hyper::{
     Body, Client, Request, Response, Server, Uri, StatusCode,
     header,
@@ -13,43 +13,29 @@ use tungstenite::WebSocket;
 
 use crate::{
     config,
-    ui::Ui,
+    context::Context,
 };
 
 
-pub fn run(
-    config: &config::Http,
-    ui: Ui,
-    errors_tx: Sender<Error>,
-    refresh: Receiver<()>,
-) -> Result<()> {
+pub fn run(config: &config::Http, reload_requests: Receiver<()>, ctx: Context) -> Result<()> {
+    // Start the HTTP server thread.
     {
         let config = config.clone();
-        let ui = ui.clone();
-        let errors_tx = errors_tx.clone();
-        thread::spawn(move || {
-            if let Err(e) = run_server(&config, ui) {
-                let _ = errors_tx.send(e);
-            }
-        });
+        ctx.spawn_thread(move |ctx| run_server(&config, ctx));
     }
 
+    // Potentially start the thread serving the websocket connection for
+    // auto_reloads.
     if config.auto_reload() {
         let config = config.clone();
-        let ui = ui.clone();
-        let errors_tx = errors_tx.clone();
-        thread::spawn(move || {
-            if let Err(e) = serve_ws(&config, ui, refresh) {
-                let _ = errors_tx.send(e);
-            }
-        });
+        ctx.spawn_thread(move |ctx| serve_ws(&config, reload_requests, ctx));
     }
 
     Ok(())
 }
 
 #[tokio::main]
-pub async fn run_server(config: &config::Http, ui: Ui) -> Result<()> {
+pub async fn run_server(config: &config::Http, ctx: &Context) -> Result<()> {
     let addr = config.addr();
     let ws_addr = config.ws_addr();
 
@@ -68,7 +54,7 @@ pub async fn run_server(config: &config::Http, ui: Ui) -> Result<()> {
     };
 
     let server = Server::bind(&addr).serve(service);
-    ui.listening(&addr);
+    ctx.ui.listening(&addr);
 
     server.await?;
 
@@ -154,7 +140,7 @@ fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
     out
 }
 
-fn serve_ws(config: &config::Http, ui: Ui, refresh: Receiver<()>) -> Result<()> {
+fn serve_ws(config: &config::Http, reload_requests: Receiver<()>, ctx: &Context) -> Result<()> {
     let sockets = Arc::new(Mutex::new(Vec::<WebSocket<_>>::new()));
 
     // Start thread that listens for incoming refresh requests.
@@ -162,7 +148,7 @@ fn serve_ws(config: &config::Http, ui: Ui, refresh: Receiver<()>) -> Result<()> 
         let proxy_target = config.proxy;
         let sockets = sockets.clone();
         thread::spawn(move || {
-            for _ in refresh {
+            for _ in reload_requests {
                 if let Some(target) = proxy_target {
                     wait_until_socket_open(target);
                 }
@@ -176,7 +162,7 @@ fn serve_ws(config: &config::Http, ui: Ui, refresh: Receiver<()>) -> Result<()> 
 
     // Listen for new WS connections, accept them and push them in the vector.
     let server = TcpListener::bind(config.ws_addr())?;
-    ui.listening_ws(&config.ws_addr());
+    ctx.ui.listening_ws(&config.ws_addr());
     for stream in server.incoming() {
         let websocket = tungstenite::accept(stream?)?;
         sockets.lock().unwrap().push(websocket);

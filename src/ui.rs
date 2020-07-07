@@ -103,6 +103,19 @@ impl Ui {
         });
     }
 
+    pub fn exiting_no_watcher(&self) {
+        self.print_line(false, |buf| {
+            buf.set_color(&bold_blue())?;
+            write!(buf, "{}", PREFIX)?;
+            buf.set_color(&icon())?;
+            write!(buf, " […] ")?;
+            buf.set_color(&bold_blue())?;
+            writeln!(buf, "no HTTP server or watcher configured: we are done already! Bye :)")?;
+
+            Ok(())
+        });
+    }
+
     pub fn change_detected(&self, action: &str) {
         self.print_line(false, |buf| {
             buf.set_color(&bold_blue())?;
