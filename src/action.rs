@@ -18,17 +18,23 @@ use crate::{
 /// `on_change` actions.
 pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
     // Run all commands that we are supposed to run on start.
-    if let Some(on_start_commands) = &action.on_start {
-        for command in on_start_commands {
-            ctx.ui.run_command("on_start", command);
-            let status = command.to_std(&action.base).status()
-                .context(format!("failed to run `{}`", command))?;
+    let mut on_start_tasks = action.on_start.clone().unwrap_or_default();
+    if action.watch.is_none() {
+        // If this action is not watching anything, we need to execute the tasks
+        // here once. Otherwise, they are executed in the executor thread.
+        on_start_tasks.extend(action.run.clone().unwrap_or_default());
+    }
 
-            if !status.success() {
-                bail!("'on_start' command for action '{}' failed (`{}`)", name, command);
-            }
+    for command in on_start_tasks {
+        ctx.ui.run_command("on_start", &command);
+        let status = command.to_std(&action.base).status()
+            .context(format!("failed to run `{}`", command))?;
+
+        if !status.success() {
+            bail!("'on_start' command for action '{}' failed (`{}`)", name, command);
         }
     }
+
 
     // If `watch` is specified, we start two threads and start watching files.
     if let Some(watched_paths) = &action.watch {
@@ -52,8 +58,6 @@ pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
             let action = action.clone();
             ctx.spawn_thread(move |ctx| executor(name, action, trigger_rx, ctx));
         }
-    } else {
-        // TODO: run `run` commands once
     }
 
     Ok(())
