@@ -33,13 +33,17 @@ pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
     // If `watch` is specified, we start two threads and start watching files.
     if let Some(watched_paths) = &action.watch {
         let (trigger_tx, trigger_rx) = channel();
+        let (watch_init_tx, watch_init_rx) = channel();
 
         // Spawn watcher thread.
         {
             let name = name.to_owned();
             let action = action.clone();
             let watched_paths = watched_paths.clone();
-            ctx.spawn_thread(move |ctx| watch(name, action, &watched_paths, trigger_tx, ctx));
+            ctx.spawn_thread(move |ctx| {
+                watch(name, action, &watched_paths, trigger_tx, watch_init_tx, ctx)
+            });
+            let _ = watch_init_rx.recv();
         }
 
         // Spawn executor thread.
@@ -62,6 +66,7 @@ fn watch(
     action: config::Action,
     watched_paths: &[String],
     triggers: Sender<Instant>,
+    init_done: Sender<()>,
     ctx: &Context,
 ) -> Result<()> {
     let (tx, rx) = channel();
@@ -81,6 +86,7 @@ fn watch(
     }
 
     ctx.ui.watching(&name, &watched_paths);
+    init_done.send(()).unwrap();
 
     // Send one trigger for each raw watch event.
     for _ in rx {

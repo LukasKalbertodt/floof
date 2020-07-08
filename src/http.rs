@@ -1,6 +1,6 @@
 use std::{
     net::{SocketAddr, TcpListener, TcpStream},
-    sync::{mpsc::Receiver, Arc, Mutex},
+    sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex},
     thread, time::{Duration, Instant},
 };
 use anyhow::{bail, Result};
@@ -18,24 +18,35 @@ use crate::{
 
 
 pub fn run(config: &config::Http, reload_requests: Receiver<()>, ctx: Context) -> Result<()> {
+    let (init_tx, init_rx) = mpsc::channel();
+
     // Start the HTTP server thread.
     {
         let config = config.clone();
-        ctx.spawn_thread(move |ctx| run_server(&config, ctx));
+        let init_tx = init_tx.clone();
+        ctx.spawn_thread(move |ctx| run_server(&config, init_tx, ctx));
     }
 
     // Potentially start the thread serving the websocket connection for
     // auto_reloads.
     if config.auto_reload() {
         let config = config.clone();
-        ctx.spawn_thread(move |ctx| serve_ws(&config, reload_requests, ctx));
+        ctx.spawn_thread(move |ctx| serve_ws(&config, reload_requests, init_tx, ctx));
     }
+
+    // Wait for all threads to have initialized
+    let waiting_for = if config.auto_reload() { 2 } else { 1 };
+    init_rx.iter().take(waiting_for).last();
 
     Ok(())
 }
 
 #[tokio::main]
-pub async fn run_server(config: &config::Http, ctx: &Context) -> Result<()> {
+pub async fn run_server(
+    config: &config::Http,
+    init_done: Sender<()>,
+    ctx: &Context,
+) -> Result<()> {
     let addr = config.addr();
     let ws_addr = config.ws_addr();
 
@@ -55,6 +66,7 @@ pub async fn run_server(config: &config::Http, ctx: &Context) -> Result<()> {
 
     let server = Server::bind(&addr).serve(service);
     ctx.ui.listening(&addr);
+    init_done.send(()).unwrap();
 
     server.await?;
 
@@ -140,7 +152,12 @@ fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
     out
 }
 
-fn serve_ws(config: &config::Http, reload_requests: Receiver<()>, ctx: &Context) -> Result<()> {
+fn serve_ws(
+    config: &config::Http,
+    reload_requests: Receiver<()>,
+    init_done: Sender<()>,
+    ctx: &Context,
+) -> Result<()> {
     let sockets = Arc::new(Mutex::new(Vec::<WebSocket<_>>::new()));
 
     // Start thread that listens for incoming refresh requests.
@@ -163,6 +180,8 @@ fn serve_ws(config: &config::Http, reload_requests: Receiver<()>, ctx: &Context)
     // Listen for new WS connections, accept them and push them in the vector.
     let server = TcpListener::bind(config.ws_addr())?;
     ctx.ui.listening_ws(&config.ws_addr());
+    init_done.send(()).unwrap();
+
     for stream in server.incoming() {
         let websocket = tungstenite::accept(stream?)?;
         sockets.lock().unwrap().push(websocket);
