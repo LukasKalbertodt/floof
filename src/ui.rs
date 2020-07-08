@@ -1,6 +1,6 @@
 use std::{
     io::{self, Write},
-    sync::{atomic::{Ordering, AtomicBool}, mpsc::Sender, Arc}, fmt, net::SocketAddr,
+    sync::{atomic::{Ordering, AtomicBool}, mpsc::Sender, Arc}, fmt, net::SocketAddr, time::Duration,
 };
 use anyhow::Error;
 use termcolor::{BufferWriter, ColorChoice, ColorSpec, WriteColor};
@@ -14,7 +14,7 @@ pub struct Ui {
     at_start_of_line: Arc<AtomicBool>,
 }
 
-const PREFIX: &str = "════════";
+const PREFIX: &str = "════════════";
 
 impl Ui {
     pub fn new(errors: Sender<Error>) -> Self {
@@ -45,11 +45,11 @@ impl Ui {
     }
 
     pub fn listening(&self, addr: &SocketAddr) {
-        Message::service("👂", format!("listening on 'http://{}'", addr)).emit(self);
+        Message::service("🌀", format!("listening on 'http://{}'", addr)).emit(self);
     }
 
     pub fn listening_ws(&self, addr: &SocketAddr) {
-        Message::service("👂", format!("websockets listening on 'ws://{}'", addr)).emit(self);
+        Message::service("🌀", format!("websockets listening on 'ws://{}'", addr)).emit(self);
     }
 
     pub fn exiting_no_watcher(&self) {
@@ -57,9 +57,19 @@ impl Ui {
             .emit(self);
     }
 
-    pub fn change_detected(&self, action: &str) {
-        // 📸 🔔 🔥 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡
-        let msg = format!("change detected for action '{}', debouncing...", action);
+    pub fn change_detected(&self, action: &str, debounce_duration: Duration) {
+        // 📸 🔔 🔥 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂
+
+        let duration = if debounce_duration >= Duration::from_secs(1) {
+            format!("{:.1?}", debounce_duration)
+        } else {
+            format!("{:.0?}", debounce_duration)
+        };
+        let msg = format!(
+            "change detected for action '{}', debouncing for {}...",
+            action,
+            duration,
+        );
         Message::status("⏳", msg)
             .without_line_ending()
             .emit(self);
@@ -132,7 +142,8 @@ impl Message {
             if !self.replace_previous && !ui.at_start_of_line.load(Ordering::SeqCst) {
                 writeln!(buf)?;
             } else if self.replace_previous {
-                write!(buf, "\r")?;
+                let spaces = "                    ";
+                write!(buf, "\r{0}{0}{0}{0}{0}{0}\r", spaces)?;
             }
 
             buf.set_color(&colors::prefix())?;

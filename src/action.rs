@@ -13,6 +13,9 @@ use crate::{
 };
 
 
+/// Run all `on_start` tasks of the given action and, if the action watches
+/// files, start threads which watch those files and trigger corresponding
+/// `on_change` actions.
 pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
     // Run all commands that we are supposed to run on start.
     if let Some(on_start_commands) = &action.on_start {
@@ -27,7 +30,7 @@ pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
         }
     }
 
-    // If `watch` is specified, we start a thread and start watching files.
+    // If `watch` is specified, we start two threads and start watching files.
     if let Some(watched_paths) = &action.watch {
         let (trigger_tx, trigger_rx) = channel();
 
@@ -52,6 +55,8 @@ pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
     Ok(())
 }
 
+/// Executed by the watcher thread: creates a watcher and sends incoming events
+/// to the executor thread. Does no debouncing.
 fn watch(
     name: String,
     action: config::Action,
@@ -77,9 +82,6 @@ fn watch(
 
     ctx.ui.watching(&name, &watched_paths);
 
-    // We send one initial trigger to already run all `run` tasks.
-    triggers.send(Instant::now()).expect("executor thread unexpectedly stopped");
-
     // Send one trigger for each raw watch event.
     for _ in rx {
         triggers.send(Instant::now()).expect("executor thread unexpectedly stopped");
@@ -89,100 +91,131 @@ fn watch(
     bail!("watcher unexpectedly stopped");
 }
 
+/// We unfortunately can't "listen" on a channel and a child process at the same
+/// time, waking up when either changes. So instead, we need to do some busy
+/// waiting. Not completely busy, fortunately. This duration specifies the
+/// timeout when waiting for the channel.
+const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);
+
+/// The code run by the executor thread. It receives file change notifications
+/// from the watcher thread (`triggers`), debounces and executes tasks.
 fn executor(
     name: String,
     action: config::Action,
     triggers: Receiver<Instant>,
     ctx: &Context,
 ) -> Result<()> {
-
-    let debounce_duration = ctx.config.watcher.as_ref()
-        .and_then(|c| c.debounce)
-        .map(|ms| Duration::from_millis(ms as u64))
-        .unwrap_or(config::DEFAULT_DEBOUNCE_DURATION);
-
-
-    let on_disconnect = || -> ! {
+    /// Just a handler for `RecvError::Disconnected` which panics. It should
+    /// never happen that the watch thread stops but the executor thread does
+    /// not.
+    fn on_disconnect() -> ! {
         panic!("watcher thread unexpectedly stopped");
     };
 
-    let run_tasks = action.run.unwrap_or_default();
-    let all_tasks = run_tasks.clone().into_iter()
-        .chain(action.on_change.unwrap_or_default())
-        .collect::<Vec<_>>();
-
-    for (i, mut trigger_time) in triggers.iter().enumerate() {
-        let is_artificial = i == 0;
-
-        if !is_artificial {
-            ctx.ui.change_detected(&name);
-        }
-
-        'debounce: loop {
-            macro_rules! restart {
-                ($trigger_time:expr) => {{
-                    trigger_time = $trigger_time;
-                    continue 'debounce;
-                }};
-            }
-
-            let since_trigger = trigger_time.elapsed();
-            if let Some(duration) = debounce_duration.checked_sub(since_trigger) {
-                thread::sleep(duration);
-            }
-
-            match triggers.try_recv() {
-                Ok(t) => restart!(t),
-                Err(TryRecvError::Disconnected) => on_disconnect(),
-
-                // In this case, nothing new has happened and we can finally
-                // proceed.
-                Err(TryRecvError::Empty) => {},
-            };
-
-            // Start executing the commands
-            let tasks = if is_artificial {
-                &run_tasks
-            } else {
-                ctx.ui.run_on_change_handlers(&name);
-                &all_tasks
-            };
-
-            // TODO: only send signal of autorefresh is on
-            let _ = ctx.request_reload();
-            for command in tasks {
-                ctx.ui.run_command("on_change", command);
-                let mut child = command.to_std(&action.base).spawn()?;
-
-                // We have a busy loop here: We regularly check if new triggers
-                // arrived, in which case we will kill the command and restart the
-                // outer loop. We also regularly check if the child is done. If so,
-                // we will exit this inner loop and proceed with the next command.
-                loop {
-                    match triggers.recv_timeout(BUSY_WAIT_DURATION) {
-                        Ok(t) => {
-                            child.kill()?;
-                            restart!(t);
-                        }
-                        Err(RecvTimeoutError::Disconnected) => on_disconnect(),
-                        Err(RecvTimeoutError::Timeout) => {
-                            if child.try_wait()?.is_some() {
-                                break;
-                            }
-                        }
-                    }
-                };
-            }
-
-            // All commands finished, we can exit the debounce loop.
-            break 'debounce;
-        }
+    /// This function is better modelled as state machine instead of using
+    /// control flow structures. These are the states this function can be in.
+    #[derive(Debug)]
+    enum State {
+        Initial,
+        WaitingForChange,
+        Debouncing(Instant),
+        RunOnChange,
     }
 
-    on_disconnect();
+    let debounce_duration = ctx.config.watcher.as_ref()
+        .map(|c| c.debounce())
+        .unwrap_or(config::DEFAULT_DEBOUNCE_DURATION);
+
+    // Runs all given tasks and returns the new state.
+    let run_tasks = |trigger, tasks: &[config::Command]| -> Result<State> {
+        for command in tasks {
+            ctx.ui.run_command(trigger, command);
+            let mut child = command.to_std(&action.base).spawn()?;
+
+            // We have a busy loop here: We regularly check if new triggers
+            // arrived, in which case we will kill the command and restart the
+            // outer loop. We also regularly check if the child is done. If so,
+            // we will exit this inner loop and proceed with the next command.
+            loop {
+                match triggers.recv_timeout(BUSY_WAIT_DURATION) {
+                    Ok(t) => {
+                        ctx.ui.change_detected(&name, debounce_duration);
+                        child.kill()?;
+                        return Ok(State::Debouncing(t))
+                    }
+                    Err(RecvTimeoutError::Timeout) => {
+                        if child.try_wait()?.is_some() {
+                            break;
+                        }
+                    }
+                    Err(RecvTimeoutError::Disconnected) => on_disconnect(),
+                }
+            };
+        }
+
+        Ok(State::WaitingForChange)
+    };
+
+
+    let on_start_tasks = action.run.clone().unwrap_or_default();
+    let on_change_tasks = action.run.clone()
+        .into_iter()
+        .chain(action.on_change.clone())
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let mut state = State::Initial;
+
+    loop {
+        match state {
+            State::Initial => {
+                state = run_tasks("on_start", &on_start_tasks)?;
+            }
+            State::WaitingForChange => {
+                let trigger_time = triggers.recv().unwrap_or_else(|_| on_disconnect());
+                ctx.ui.change_detected(&name, debounce_duration);
+                state = State::Debouncing(trigger_time);
+            }
+            State::Debouncing(trigger_time) => {
+                // Sleep a bit before checking for new events.
+                let since_trigger = trigger_time.elapsed();
+                if let Some(duration) = debounce_duration.checked_sub(since_trigger) {
+                    thread::sleep(duration);
+                }
+
+                match triggers.try_recv() {
+                    // There has been a new event in the debounce time, so we
+                    // continue our debounce wait.
+                    Ok(mut new_trigger_time) => {
+                        // We clear the whole queue here to avoid waiting
+                        // `debounce_duration` for every event.
+                        loop {
+                            match triggers.try_recv() {
+                                Ok(t) => new_trigger_time = t,
+                                Err(TryRecvError::Disconnected) => on_disconnect(),
+                                Err(TryRecvError::Empty) => break,
+                            }
+                        }
+
+                        state = State::Debouncing(new_trigger_time);
+                    }
+
+                    // In this case, nothing new has happened and we can finally
+                    // proceed.
+                    Err(TryRecvError::Empty) => state = State::RunOnChange,
+
+                    Err(TryRecvError::Disconnected) => on_disconnect(),
+                };
+            }
+            State::RunOnChange => {
+                ctx.ui.run_on_change_handlers(&name);
+                ctx.request_reload();
+                state = run_tasks("on_change", &on_change_tasks)?;
+            }
+        }
+    }
 }
 
-const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);
 
 impl config::Command {
     /// Creates a `std::process::Command` from the command specified in the

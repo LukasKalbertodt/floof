@@ -128,6 +128,12 @@ impl Watcher {
     fn validate(&self) -> Result<()> {
         Ok(())
     }
+
+    pub fn debounce(&self) -> Duration {
+        self.debounce
+            .map(|ms| Duration::from_millis(ms as u64))
+            .unwrap_or(DEFAULT_DEBOUNCE_DURATION)
+    }
 }
 
 impl Command {
