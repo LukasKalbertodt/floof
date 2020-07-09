@@ -18,11 +18,11 @@ use crate::{
 /// `on_change` actions.
 pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
     // Run all commands that we are supposed to run on start.
-    let mut on_start_tasks = action.on_start.clone().unwrap_or_default();
+    let mut on_start_tasks = action.on_start_commands().to_vec();
     if action.watch.is_none() {
         // If this action is not watching anything, we need to execute the tasks
         // here once. Otherwise, they are executed in the executor thread.
-        on_start_tasks.extend(action.run.clone().unwrap_or_default());
+        on_start_tasks.extend(action.run_commands().iter().cloned());
     }
 
     for command in on_start_tasks {
@@ -167,11 +167,11 @@ fn executor(
     };
 
 
-    let on_start_tasks = action.run.clone().unwrap_or_default();
-    let on_change_tasks = action.run.clone()
-        .into_iter()
-        .chain(action.on_change.clone())
-        .flatten()
+    let on_start_tasks = action.run_commands();
+    let on_change_tasks = action.run_commands()
+        .iter()
+        .chain(action.on_change_commands())
+        .cloned()
         .collect::<Vec<_>>();
 
     let mut state = State::Initial;

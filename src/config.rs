@@ -115,6 +115,23 @@ impl Config {
 }
 
 impl Action {
+    pub fn run_commands(&self) -> &[Command] {
+        Self::commands(&self.run)
+    }
+    pub fn on_start_commands(&self) -> &[Command] {
+        Self::commands(&self.on_start)
+    }
+    pub fn on_change_commands(&self) -> &[Command] {
+        Self::commands(&self.on_change)
+    }
+
+    fn commands(commands: &Option<Vec<Command>>) -> &[Command] {
+        match commands {
+            None => &[],
+            Some(v) => v,
+        }
+    }
+
     fn validate(&self) -> Result<()> {
         if self.on_change.is_some() && self.watch.is_none() {
             bail!("field 'on_change' requires 'watch' to be specified \
@@ -126,13 +143,13 @@ impl Action {
                 are specified, which makes no sense");
         }
 
-        for command in self.on_start.iter().flatten() {
+        for command in self.on_start_commands() {
             command.validate().context("invalid 'on_start' commands")?;
         }
-        for command in self.on_change.iter().flatten() {
+        for command in self.on_change_commands() {
             command.validate().context("invalid 'on_change' commands")?;
         }
-        for command in self.run.iter().flatten() {
+        for command in self.run_commands() {
             command.validate().context("invalid 'run' commands")?;
         }
 
