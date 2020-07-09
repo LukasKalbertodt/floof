@@ -14,17 +14,19 @@ use std::{time::Duration, collections::HashMap};
 /// The default filename from which to load the configuration.
 pub const DEFAULT_FILENAME: &str = "watchboi.toml";
 
-pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(350);
+pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 
 /// The root configuration object.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
-    pub actions: Option<HashMap<String, Action>>,
+    pub actions: HashMap<String, Action>,
     pub http: Option<Http>,
     pub watcher: Option<Watcher>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Action {
     pub base: Option<String>,
     pub watch: Option<Vec<String>>,
@@ -34,6 +36,7 @@ pub struct Action {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Http {
     pub addr: Option<SocketAddr>,
     pub proxy: Option<SocketAddr>,
@@ -42,6 +45,7 @@ pub struct Http {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Watcher {
     pub debounce: Option<u32>,
 }
@@ -67,7 +71,8 @@ impl Config {
             .context(format!("failed to read contents of '{}'", path.display()))?;
         let config: Self = toml::from_slice(&content)
             .context("failed to parse config file as TOML")?;
-        config.validate()?;
+        config.validate()
+            .context("invalid config file: logic errors were found")?;
 
         Ok(config)
     }
@@ -80,8 +85,8 @@ impl Config {
             watcher.validate()?;
         }
 
-        for (key, action) in self.actions.iter().flatten() {
-            action.validate().context(format!("invalid configuration for action '{}'", key))?;
+        for (name, action) in &self.actions {
+            action.validate().context(format!("invalid configuration for action '{}'", name))?;
         }
 
         Ok(())
@@ -95,11 +100,19 @@ impl Action {
                 (otherwise it would never run)");
         }
 
+        if self.watch.is_some() && (self.on_change.is_none() && self.run.is_none()) {
+            bail!("field 'watch' is specified, but neither 'run' nor 'on_change' commands \
+                are specified, which makes no sense");
+        }
+
         for command in self.on_start.iter().flatten() {
-            command.validate().context("failed validation of 'on_start' commands")?;
+            command.validate().context("invalid 'on_start' commands")?;
         }
         for command in self.on_change.iter().flatten() {
-            command.validate().context("failed validation of 'on_change' commands")?;
+            command.validate().context("invalid 'on_change' commands")?;
+        }
+        for command in self.run.iter().flatten() {
+            command.validate().context("invalid 'run' commands")?;
         }
 
         Ok(())

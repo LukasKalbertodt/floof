@@ -55,7 +55,7 @@ fn main() -> Result<()> {
 
     // Run each action (actions which watch files will spawn a thread and keep
     // running).
-    for (name, action) in ctx.config.actions.iter().flatten() {
+    for (name, action) in &ctx.config.actions {
         action::run(&name, &action, &ctx)?;
     }
 
