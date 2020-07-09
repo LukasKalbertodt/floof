@@ -1,6 +1,8 @@
 Watchboi
 ========
 
+[<img alt="CI status of master" src="https://img.shields.io/github/workflow/status/LukasKalbertodt/watchboi/CI/master?label=CI&logo=github&logoColor=white&style=for-the-badge" height="23">](https://github.com/LukasKalbertodt/watchboi/actions?query=workflow%3ACI+branch%3Amaster)
+
 TODO
 
 ---
