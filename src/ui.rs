@@ -86,6 +86,13 @@ impl Ui {
         let msg = format!("running ({}): {}", handler, command);
         Message::status("🐇", msg).emit(self);
     }
+
+    pub fn reload_browser(&self, action: &str) {
+        let msg = format!("reloading browser (due to change in action '{}')", action);
+        Message::status("↻ ", msg)
+            .replace_previous()
+            .emit(self);
+    }
 }
 
 

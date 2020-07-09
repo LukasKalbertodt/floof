@@ -17,7 +17,7 @@ use crate::{
 };
 
 
-pub fn run(config: &config::Http, reload_requests: Receiver<()>, ctx: Context) -> Result<()> {
+pub fn run(config: &config::Http, reload_requests: Receiver<String>, ctx: Context) -> Result<()> {
     let (init_tx, init_rx) = mpsc::channel();
 
     // Start the HTTP server thread.
@@ -29,13 +29,13 @@ pub fn run(config: &config::Http, reload_requests: Receiver<()>, ctx: Context) -
 
     // Potentially start the thread serving the websocket connection for
     // auto_reloads.
-    if config.auto_reload() {
+    if ctx.config.auto_reload() {
         let config = config.clone();
         ctx.spawn_thread(move |ctx| serve_ws(&config, reload_requests, init_tx, ctx));
     }
 
     // Wait for all threads to have initialized
-    let waiting_for = if config.auto_reload() { 2 } else { 1 };
+    let waiting_for = if ctx.config.auto_reload() { 2 } else { 1 };
     init_rx.iter().take(waiting_for).last();
 
     Ok(())
@@ -51,7 +51,7 @@ pub async fn run_server(
     let ws_addr = config.ws_addr();
 
     let service = if let Some(proxy_target) = config.proxy {
-        let auto_reload = config.auto_reload();
+        let auto_reload = ctx.config.auto_reload();
 
         make_service_fn(move |_| {
             async move {
@@ -154,7 +154,7 @@ fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
 
 fn serve_ws(
     config: &config::Http,
-    reload_requests: Receiver<()>,
+    reload_requests: Receiver<String>,
     init_done: Sender<()>,
     ctx: &Context,
 ) -> Result<()> {
@@ -164,11 +164,14 @@ fn serve_ws(
     {
         let proxy_target = config.proxy;
         let sockets = sockets.clone();
+        let ctx = ctx.clone();
         thread::spawn(move || {
-            for _ in reload_requests {
+            for action_name in reload_requests {
                 if let Some(target) = proxy_target {
                     wait_until_socket_open(target);
                 }
+
+                ctx.ui.reload_browser(&action_name);
 
                 // All connections are closed when the `TcpStream` inside those
                 // `WebSocket` is dropped.

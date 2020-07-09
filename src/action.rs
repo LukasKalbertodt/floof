@@ -219,8 +219,15 @@ fn executor(
             }
             State::RunOnChange => {
                 ctx.ui.run_on_change_handlers(&name);
-                ctx.request_reload();
+                if action.reload == Some(config::Reload::Early) {
+                    ctx.request_reload(name.clone());
+                }
+
                 state = run_tasks("on_change", &on_change_tasks)?;
+
+                if action.reload == Some(config::Reload::Late) {
+                    ctx.request_reload(name.clone());
+                }
             }
         }
     }

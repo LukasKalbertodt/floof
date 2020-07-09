@@ -33,6 +33,16 @@ pub struct Action {
     pub run: Option<Vec<Command>>,
     pub on_start: Option<Vec<Command>>,
     pub on_change: Option<Vec<Command>>,
+    pub reload: Option<Reload>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Reload {
+    /// Reloading before the `on_change` handlers are fired.
+    Early,
+    /// Reloading after all `on_change` handlers are done.
+    Late,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -40,7 +50,6 @@ pub struct Action {
 pub struct Http {
     pub addr: Option<SocketAddr>,
     pub proxy: Option<SocketAddr>,
-    pub auto_reload: Option<bool>,
     pub ws_addr: Option<SocketAddr>,
 }
 
@@ -87,9 +96,21 @@ impl Config {
 
         for (name, action) in &self.actions {
             action.validate().context(format!("invalid configuration for action '{}'", name))?;
+
+            if action.reload.is_some() && self.http.is_none() {
+                bail!(
+                    "action '{}' specified 'reload', but no HTTP server is configured \
+                        (top level key 'http' is missing)",
+                    name,
+                );
+            }
         }
 
         Ok(())
+    }
+
+    pub fn auto_reload(&self) -> bool {
+        self.actions.values().any(|a| a.reload.is_some())
     }
 }
 
@@ -122,10 +143,6 @@ impl Action {
 impl Http {
     pub fn addr(&self) -> SocketAddr {
         self.addr.unwrap_or(([127, 0, 0, 1], 8030).into())
-    }
-
-    pub fn auto_reload(&self) -> bool {
-        self.auto_reload.unwrap_or(true)
     }
 
     pub fn ws_addr(&self) -> SocketAddr {
