@@ -111,18 +111,37 @@ async fn proxy(
             }
         }
         Err(e) => {
-            let msg = format!("failed to reach {}\nError:\n\n{}", uri, e);
+            let msg = format!("Failed to reach {}\n\n{}", uri, e);
+            let html = format!(
+                "<html>\n  \
+                  <head><title>Watchboi can't reach proxy target</title></head>\n  \
+                  <body>\n    \
+                    <h1>Watchboi failed to connect to the proxy target :(</h1>\n    \
+                    <pre>{}</pre>\n    \
+                    {}\n  \
+                  </body>\n\
+                </html>",
+                msg,
+                reload_script(ws_addr),
+            );
 
             Response::builder()
                 // TODO: sometimes this should be 504 GATEWAY TIMEOUT
                 .status(StatusCode::BAD_GATEWAY)
-                .header("Content-Type", "text/plain")
-                .body(msg.into())
+                .header("Content-Type", "text/html")
+                .body(html.into())
                 .unwrap()
         }
     };
 
     Ok(response)
+}
+
+fn reload_script(ws_addr: SocketAddr) -> String {
+    const JS_CODE: &str = include_str!("inject.js");
+
+    let js = JS_CODE.replace("INSERT_PORT_HERE_KTHXBYE", &ws_addr.port().to_string());
+    format!("<script>\n{}</script>", js)
 }
 
 fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
@@ -139,15 +158,11 @@ fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
         }
     }
 
-    let js = include_str!("inject.js")
-        .replace("INSERT_PORT_HERE_KTHXBYE", &ws_addr.port().to_string());
-    let script = format!("<script>\n{}</script>", js);
-
     // If we haven't found a closing body tag, we just insert our JS at the very
     // end.
     let insert_idx = body_close_idx.unwrap_or(input.len());
     let mut out = input[..insert_idx].to_vec();
-    out.extend_from_slice(script.as_bytes());
+    out.extend_from_slice(reload_script(ws_addr).as_bytes());
     out.extend_from_slice(&input[insert_idx..]);
     out
 }
