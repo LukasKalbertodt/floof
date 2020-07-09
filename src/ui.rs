@@ -93,6 +93,16 @@ impl Ui {
             .replace_previous()
             .emit(self);
     }
+
+    pub fn port_wait_timeout(&self, target: SocketAddr, duration: Duration) {
+        let msg = format!(
+            "Timeout reached when listening for proxy target ({}) to get ready. \
+                Port refused connection for {:?}. Autoreload is cancelled.",
+            target,
+            duration
+        );
+        Message::error("⚠", msg).emit(self);
+    }
 }
 
 
@@ -126,6 +136,9 @@ impl Message {
 
     fn status(icon: impl Into<String>, msg: impl Into<String>) -> Self {
         Self::new(MessageKind::Status, icon, msg)
+    }
+    fn error(icon: impl Into<String>, msg: impl Into<String>) -> Self {
+        Self::new(MessageKind::Error, icon, msg)
     }
 
     fn without_line_ending(self) -> Self {
@@ -186,6 +199,9 @@ enum MessageKind {
 
     /// General messages about some kind of status.
     Status,
+
+    /// Something bad, displayed in red to catch attention.
+    Error,
 }
 
 impl MessageKind {
@@ -193,6 +209,7 @@ impl MessageKind {
         match self {
             Self::Service => colors::magenta(),
             Self::Status => colors::bold_blue(),
+            Self::Error => colors::bold_red(),
         }
     }
 }
@@ -209,6 +226,12 @@ mod colors {
         let mut out = ColorSpec::new();
         out.set_fg(Some(Color::Blue));
         out.set_intense(true);
+        out
+    }
+    pub fn bold_red() -> ColorSpec {
+        let mut out = ColorSpec::new();
+        out.set_fg(Some(Color::Red));
+        out.set_bold(true);
         out
     }
     pub fn magenta() -> ColorSpec {

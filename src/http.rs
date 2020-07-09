@@ -183,7 +183,7 @@ fn serve_ws(
         thread::spawn(move || {
             for action_name in reload_requests {
                 if let Some(target) = proxy_target {
-                    wait_until_socket_open(target);
+                    wait_until_socket_open(target, &ctx);
                 }
 
                 ctx.ui.reload_browser(&action_name);
@@ -208,9 +208,9 @@ fn serve_ws(
     Ok(())
 }
 
-fn wait_until_socket_open(target: SocketAddr) {
+fn wait_until_socket_open(target: SocketAddr, ctx: &Context) {
     const POLL_PERIOD: Duration = Duration::from_millis(20);
-    const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+    const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
     let start_wait = Instant::now();
 
@@ -225,5 +225,5 @@ fn wait_until_socket_open(target: SocketAddr) {
         }
     }
 
-    println!("WARNING");
+    ctx.ui.port_wait_timeout(target, PORT_WAIT_TIMEOUT);
 }
