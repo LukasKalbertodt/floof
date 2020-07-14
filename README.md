@@ -2,6 +2,10 @@ Watchboi
 ========
 
 [<img alt="CI status of master" src="https://img.shields.io/github/workflow/status/LukasKalbertodt/watchboi/CI/master?label=CI&logo=github&logoColor=white&style=for-the-badge" height="23">](https://github.com/LukasKalbertodt/watchboi/actions?query=workflow%3ACI+branch%3Amaster)
+[<img alt="Crates.io Version" src="https://img.shields.io/crates/v/watchboi?logo=rust&style=for-the-badge" height="23">](https://crates.io/crates/watchboi)
+<img alt="Crates.io Downloads" src="https://img.shields.io/crates/d/watchboi?color=%233498db&label=crates.io%20downloads&style=for-the-badge" height="23">
+<img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/LukasKalbertodt/watchboi/total?color=3498db&label=Github%20downloads&style=for-the-badge" height="23">
+
 
 Watchboi is a language and tech-stack agnostic, simple-to-use development server, file-watcher and tiny build system.
 It is mainly useful for web-development (i.e. where you inspect your software in the browser) due to its ability to automatically reload your app in the browser.
