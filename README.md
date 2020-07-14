@@ -26,10 +26,22 @@ For other projects, [cargo watch](https://github.com/passcod/cargo-watch) or [wa
 - [ ] Tiny build-system
 
 
+## Installation
+
+Currently the best way is to install from `crates.io`.
+You need Rust and Cargo to do that, as you compile the application yourself.
+
+```
+cargo install watchboi
+```
+
+At some point I will start attaching pre-compiled binaries to the GitHub releases.
+
+
 ## Example
 
 A `watchboi.toml` is expected in the root folder of the project/in the directory you run `watchboi` in (like `Makefile`).
-That files defines what actions need to be run and configures a bunch of other stuff.
+That file defines what actions need to be run and configures a bunch of other stuff.
 The following is an example for a project that uses a Rust backend server and a React (JS) frontend.
 There are separate folders `frontend` and `backend` for the two parts of the project.
 
