@@ -1,18 +1,20 @@
-//! Configuration, usually loaded from `watchboi.toml`.
+//! Configuration, usually loaded from `watchboi.yaml`.
 
 use std::{
+    collections::HashMap,
     fmt,
     fs,
     net::SocketAddr,
     path::Path,
+    time::Duration,
 };
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
-use std::{time::Duration, collections::HashMap};
+use serde::{Deserializer, Deserialize, de::{self, MapAccess, SeqAccess, Visitor}};
+use crate::step;
 
 
 /// The default filename from which to load the configuration.
-pub const DEFAULT_FILENAME: &str = "watchboi.toml";
+pub const DEFAULT_FILENAME: &str = "watchboi.yaml";
 
 pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 
@@ -30,20 +32,91 @@ pub struct Config {
 pub struct Action {
     pub base: Option<String>,
     pub watch: Option<Vec<String>>,
-    pub run: Option<Vec<Command>>,
-    pub on_start: Option<Vec<Command>>,
-    pub on_change: Option<Vec<Command>>,
-    pub reload: Option<Reload>,
+    pub run: Option<Vec<Step>>,
+    pub on_start: Option<Vec<Step>>,
+    pub on_change: Option<Vec<Step>>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Reload {
-    /// Reloading before the `on_change` handlers are fired.
-    Early,
-    /// Reloading after all `on_change` handlers are done.
-    Late,
+/// One of different kinds of steps that watchboi can execute.
+#[derive(Debug, Clone)]
+pub enum Step {
+    Command(step::Command),
+    Copy(step::Copy),
+    Reload(step::Reload),
+
+    // When adding new variants, also adjust the `match_tag` invocation inside
+    // the `Deserialize` impl!
 }
+
+impl<'de> Deserialize<'de> for Step {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct StepVisitor;
+        impl<'de> Visitor<'de> for StepVisitor {
+            type Value = Step;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string, an array or a map with a single field")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Step::Command(step::Command::simple(v)))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut v = Vec::new();
+
+                while let Some(value) = seq.next_element()? {
+                    v.push(value);
+                }
+
+                Ok(Step::Command(step::Command::explicit(v)))
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let tag = map.next_key::<String>()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &"1"))?;
+
+                /// Macro to avoid duplication of valid tags
+                macro_rules! match_tag {
+                    ($($tag:literal => $variant:ident,)+ ) => {
+                        match &*tag {
+                            $(
+                                $tag => Ok(Step::$variant(map.next_value()?)),
+                            )+
+                            other => Err(de::Error::unknown_variant(other, &[$($tag),+])),
+                        }
+
+                    };
+                }
+
+                match_tag! {
+                    "command" => Command,
+                    "copy" => Copy,
+                    "reload" => Reload,
+                }
+            }
+        }
+
+        // The use of `deserialize_any` is discouraged as this makes using
+        // non-selfdescribing formats (usually, many binary formats) impossible.
+        // But we know that we will use YAML and we don't really have a choice
+        // here as we indeed can be deserialized from different types.
+        deserializer.deserialize_any(StepVisitor)
+    }
+}
+
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,18 +132,6 @@ pub struct Watcher {
     pub debounce: Option<u32>,
 }
 
-/// A command specification (a application name/path and its arguments).
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum Command {
-    /// A single string which will be split at whitespace boundaries. Fine for
-    /// most commands.
-    Simple(String),
-
-    /// An array of strings that is passed to `std::process::Command` like this.
-    /// Required for when arguments in the command contain whitespace.
-    Explicit(Vec<String>),
-}
 
 impl Config {
     /// Loads and validates the configuration from the specified path.
@@ -78,8 +139,8 @@ impl Config {
         let path = path.as_ref();
         let content = fs::read(path)
             .context(format!("failed to read contents of '{}'", path.display()))?;
-        let config: Self = toml::from_slice(&content)
-            .context("failed to parse config file as TOML")?;
+        let config: Self = serde_yaml::from_slice(&content)
+            .context("failed to deserialize YAML file")?;
         config.validate()
             .context("invalid config file: logic errors were found")?;
 
@@ -97,9 +158,9 @@ impl Config {
         for (name, action) in &self.actions {
             action.validate().context(format!("invalid configuration for action '{}'", name))?;
 
-            if action.reload.is_some() && self.http.is_none() {
+            if action.has_reload_step() && self.http.is_none() {
                 bail!(
-                    "action '{}' specified 'reload', but no HTTP server is configured \
+                    "action '{}' includes a 'reload' step, but no HTTP server is configured \
                         (top level key 'http' is missing)",
                     name,
                 );
@@ -109,27 +170,34 @@ impl Config {
         Ok(())
     }
 
-    pub fn auto_reload(&self) -> bool {
-        self.actions.values().any(|a| a.reload.is_some())
+    pub fn has_reload_step(&self) -> bool {
+        self.actions.values().any(|a| a.has_reload_step())
     }
 }
 
 impl Action {
-    pub fn run_commands(&self) -> &[Command] {
-        Self::commands(&self.run)
+    pub fn run_steps(&self) -> &[Step] {
+        Self::steps(&self.run)
     }
-    pub fn on_start_commands(&self) -> &[Command] {
-        Self::commands(&self.on_start)
+    pub fn on_start_steps(&self) -> &[Step] {
+        Self::steps(&self.on_start)
     }
-    pub fn on_change_commands(&self) -> &[Command] {
-        Self::commands(&self.on_change)
+    pub fn on_change_steps(&self) -> &[Step] {
+        Self::steps(&self.on_change)
     }
 
-    fn commands(commands: &Option<Vec<Command>>) -> &[Command] {
-        match commands {
+    fn steps(steps: &Option<Vec<Step>>) -> &[Step] {
+        match steps {
             None => &[],
             Some(v) => v,
         }
+    }
+
+    fn has_reload_step(&self) -> bool {
+        self.run_steps().iter()
+                .chain(self.on_start_steps())
+                .chain(self.on_change_steps())
+                .any(|s| matches!(s, Step::Reload(_)))
     }
 
     fn validate(&self) -> Result<()> {
@@ -143,14 +211,14 @@ impl Action {
                 are specified, which makes no sense");
         }
 
-        for command in self.on_start_commands() {
-            command.validate().context("invalid 'on_start' commands")?;
+        for step in self.on_start_steps() {
+            step.validate().context("invalid 'on_start' steps")?;
         }
-        for command in self.on_change_commands() {
-            command.validate().context("invalid 'on_change' commands")?;
+        for step in self.on_change_steps() {
+            step.validate().context("invalid 'on_change' steps")?;
         }
-        for command in self.run_commands() {
-            command.validate().context("invalid 'run' commands")?;
+        for step in self.run_steps() {
+            step.validate().context("invalid 'run' steps")?;
         }
 
         Ok(())
@@ -183,50 +251,12 @@ impl Watcher {
     }
 }
 
-impl Command {
+impl Step {
     fn validate(&self) -> Result<()> {
         match self {
-            Self::Simple(s) => {
-                if s.trim().is_empty() {
-                    bail!("empty command is invalid");
-                }
-            }
-            Self::Explicit(v) => {
-                if v.is_empty() {
-                    bail!("empty command is invalid");
-                }
-                if v.iter().any(|s| s.trim().is_empty()) {
-                    bail!("segment of command is empty (all segments must be non-empty)");
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl fmt::Display for Command {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Command::Simple(s) => s.fmt(f),
-            Command::Explicit(v) => {
-                let mut first = true;
-                for part in v {
-                    if first {
-                        first = false;
-                    } else {
-                        write!(f, " ")?;
-                    };
-
-                    if part.contains(char::is_whitespace) {
-                        write!(f, r#""{}""#, part)?;
-                    } else {
-                        write!(f, "{}", part)?;
-                    }
-                }
-
-                Ok(())
-            }
+            Step::Command(v) => v.validate(),
+            Step::Copy(v) => v.validate(),
+            Step::Reload(v) => v.validate(),
         }
     }
 }

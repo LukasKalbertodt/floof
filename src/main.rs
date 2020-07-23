@@ -4,15 +4,16 @@ use structopt::StructOpt;
 use crate::{
     args::Args,
     config::Config,
-    context::{Context, ContextCreation},
+    // context::{Context, ContextCreation},
 };
 
-mod action;
+// mod action;
 mod args;
 mod config;
-mod context;
-mod http;
-mod ui;
+// mod context;
+// mod http;
+mod step;
+// mod ui;
 
 
 fn main() -> Result<()> {
@@ -44,32 +45,34 @@ fn main() -> Result<()> {
         }
     };
 
+    println!("{:#?}", config);
 
-    // Create the context that is given to various threads and other functions.
-    let ContextCreation { ctx, reload_requests, errors } = Context::new(config);
 
-    // Start HTTP server if it is requested
-    if let Some(http_config) = &ctx.config.http {
-        http::run(http_config, reload_requests, ctx.clone())?;
-    }
+    // // Create the context that is given to various threads and other functions.
+    // let ContextCreation { ctx, reload_requests, errors } = Context::new(config);
 
-    // Run each action (actions which watch files will spawn a thread and keep
-    // running).
-    for (name, action) in &ctx.config.actions {
-        action::run(&name, &action, &ctx)?;
-    }
+    // // Start HTTP server if it is requested
+    // if let Some(http_config) = &ctx.config.http {
+    //     http::run(http_config, reload_requests, ctx.clone())?;
+    // }
 
-    // Drop the context to drop all `Sender`s within it.
-    let ui = ctx.ui.clone();
-    drop(ctx);
+    // // Run each action (actions which watch files will spawn a thread and keep
+    // // running).
+    // for (name, action) in &ctx.config.actions {
+    //     action::run(&name, &action, &ctx)?;
+    // }
 
-    // We collect errors on the main thread, exiting when the first one arrives.
-    match errors.recv() {
-        // There are no thread running, so we can just quit.
-        Err(_) => ui.exiting_no_watcher(),
-        // A thread returned an error.
-        Ok(e) => return Err(e),
-    }
+    // // Drop the context to drop all `Sender`s within it.
+    // let ui = ctx.ui.clone();
+    // drop(ctx);
+
+    // // We collect errors on the main thread, exiting when the first one arrives.
+    // match errors.recv() {
+    //     // There are no thread running, so we can just quit.
+    //     Err(_) => ui.exiting_no_watcher(),
+    //     // A thread returned an error.
+    //     Ok(e) => return Err(e),
+    // }
 
     Ok(())
 }
