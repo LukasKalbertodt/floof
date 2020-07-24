@@ -31,19 +31,19 @@ pub trait Step {
     /// Starts the step and returns a handle representing the running step.
     fn start(
         &self,
-        action_name: &str,
-        action: &cfg::Action,
+        task_name: &str,
+        task: &cfg::Task,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>>;
 
     /// Starts the step and immediately runs it to completion.
     fn execute(
         &self,
-        action_name: &str,
-        action: &cfg::Action,
+        task_name: &str,
+        task: &cfg::Task,
         ctx: &Context,
     ) -> Result<Outcome> {
-        self.start(action_name, action, ctx)?.finish()
+        self.start(task_name, task, ctx)?.finish()
     }
 }
 
@@ -64,14 +64,14 @@ impl RunningStep for FinishedStep {
 impl Step for cfg::Step {
     fn start(
         &self,
-        action_name: &str,
-        action: &cfg::Action,
+        task_name: &str,
+        task: &cfg::Task,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         match self {
-            Self::Command(x) => x.start(action_name, action, ctx),
-            Self::Copy(x) => x.start(action_name, action, ctx),
-            Self::Reload(x) => x.start(action_name, action, ctx),
+            Self::Command(x) => x.start(task_name, task, ctx),
+            Self::Copy(x) => x.start(task_name, task, ctx),
+            Self::Reload(x) => x.start(task_name, task, ctx),
         }
     }
 }
@@ -92,8 +92,8 @@ impl Copy {
 impl Step for Copy {
     fn start(
         &self,
-        _action_name: &str,
-        _action: &cfg::Action,
+        _task_name: &str,
+        _task: &cfg::Task,
         _ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         todo!()
@@ -113,11 +113,11 @@ impl Reload {
 impl Step for Reload {
     fn start(
         &self,
-        action_name: &str,
-        _action: &cfg::Action,
+        task_name: &str,
+        _task: &cfg::Task,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
-        ctx.request_reload(action_name.clone());
+        ctx.request_reload(task_name.clone());
         Ok(Box::new(FinishedStep(Outcome::Success)))
     }
 }
@@ -189,8 +189,8 @@ impl Command {
 impl Step for Command {
     fn start(
         &self,
-        _action_name: &str,
-        action: &cfg::Action,
+        _task_name: &str,
+        task: &cfg::Task,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         ctx.ui.run_command("on_start", self);
@@ -214,7 +214,7 @@ impl Step for Command {
 
         let mut command = std::process::Command::new(&program);
         command.args(args);
-        if let Some(working_dir) = self.workdir.as_ref().or(action.base.as_ref()) {
+        if let Some(working_dir) = self.workdir.as_ref().or(task.base.as_ref()) {
             command.current_dir(working_dir);
         }
 

@@ -26,7 +26,7 @@ impl Ui {
         }
     }
 
-    pub fn watching(&self, action: &str, paths: &[impl fmt::Display]) {
+    pub fn watching(&self, task: &str, paths: &[impl fmt::Display]) {
         let mut paths_str = String::new();
         const MAX_PATHS: usize = 3;
         for (i, path) in paths.iter().enumerate() {
@@ -41,7 +41,7 @@ impl Ui {
             }
         }
 
-        Message::service("👁 ", format!("watching for '{}': {}", action, paths_str)).emit(self);
+        Message::service("👁 ", format!("[{}] watching: {}", task, paths_str)).emit(self);
     }
 
     pub fn listening(&self, addr: &SocketAddr) {
@@ -57,7 +57,7 @@ impl Ui {
             .emit(self);
     }
 
-    pub fn change_detected(&self, action: &str, debounce_duration: Duration) {
+    pub fn change_detected(&self, task: &str, debounce_duration: Duration) {
         // 📸 🔔 🔥 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂
 
         let duration = if debounce_duration >= Duration::from_secs(1) {
@@ -66,8 +66,8 @@ impl Ui {
             format!("{:.0?}", debounce_duration)
         };
         let msg = format!(
-            "change detected for action '{}', debouncing for {}...",
-            action,
+            "[{}] change detected, debouncing for {}...",
+            task,
             duration,
         );
         Message::status("⏳", msg)
@@ -75,8 +75,8 @@ impl Ui {
             .emit(self);
     }
 
-    pub fn run_on_change_handlers(&self, action: &str) {
-        let msg = format!("change detected for action '{}', executing handler...", action);
+    pub fn run_on_change_handlers(&self, task: &str) {
+        let msg = format!("[{}]change detected, executing handler...", task);
         Message::status("🔥", msg)
             .replace_previous()
             .emit(self);
@@ -87,8 +87,8 @@ impl Ui {
         Message::status("▶️ ", msg).emit(self);
     }
 
-    pub fn reload_browser(&self, action: &str) {
-        let msg = format!("reloading browser (due to change in action '{}')", action);
+    pub fn reload_browser(&self, task: &str) {
+        let msg = format!("[{}] reloading browser", task);
         Message::status("↻ ", msg)
             .replace_previous()
             .emit(self);

@@ -13,38 +13,38 @@ use crate::{
 };
 
 
-/// Run all `on_start` tasks of the given action and, if the action watches
-/// files, start threads which watch those files and trigger corresponding
-/// `on_change` actions.
-pub fn run(name: &str, action: &cfg::Action, ctx: &Context) -> Result<()> {
+/// Run all `on_start` tasks of the given task and, if the task watches files,
+/// start threads which watch those files and trigger corresponding `on_change`
+/// steps.
+pub fn run(name: &str, task: &cfg::Task, ctx: &Context) -> Result<()> {
     // Run all commands that we are supposed to run on start.
-    let mut on_start_tasks = action.on_start_steps().to_vec();
-    if action.watch.is_none() {
-        // If this action is not watching anything, we need to execute the tasks
+    let mut on_start_tasks = task.on_start_steps().to_vec();
+    if task.watch.is_none() {
+        // If this task is not watching anything, we need to execute the tasks
         // here once. Otherwise, they are executed in the executor thread.
-        on_start_tasks.extend(action.run_steps().iter().cloned());
+        on_start_tasks.extend(task.run_steps().iter().cloned());
     }
 
     for step in on_start_tasks {
-        let outcome = step.execute(name, action, ctx)?;
+        let outcome = step.execute(name, task, ctx)?;
         if outcome == Outcome::Failure {
-            bail!("'on_start' step for action '{}' failed", name);
+            bail!("'on_start' step for task '{}' failed", name);
         }
     }
 
 
     // If `watch` is specified, we start two threads and start watching files.
-    if let Some(watched_paths) = &action.watch {
+    if let Some(watched_paths) = &task.watch {
         let (trigger_tx, trigger_rx) = channel();
         let (watch_init_tx, watch_init_rx) = channel();
 
         // Spawn watcher thread.
         {
             let name = name.to_owned();
-            let action = action.clone();
+            let task = task.clone();
             let watched_paths = watched_paths.clone();
             ctx.spawn_thread(move |ctx| {
-                watch(name, action, &watched_paths, trigger_tx, watch_init_tx, ctx)
+                watch(name, task, &watched_paths, trigger_tx, watch_init_tx, ctx)
             });
             let _ = watch_init_rx.recv();
         }
@@ -52,8 +52,8 @@ pub fn run(name: &str, action: &cfg::Action, ctx: &Context) -> Result<()> {
         // Spawn executor thread.
         {
             let name = name.to_owned();
-            let action = action.clone();
-            ctx.spawn_thread(move |ctx| executor(name, action, trigger_rx, ctx));
+            let task = task.clone();
+            ctx.spawn_thread(move |ctx| executor(name, task, trigger_rx, ctx));
         }
     }
 
@@ -64,7 +64,7 @@ pub fn run(name: &str, action: &cfg::Action, ctx: &Context) -> Result<()> {
 /// to the executor thread. Does no debouncing.
 fn watch(
     name: String,
-    action: cfg::Action,
+    task: cfg::Task,
     watched_paths: &[String],
     triggers: Sender<Instant>,
     init_done: Sender<()>,
@@ -74,13 +74,13 @@ fn watch(
     let mut watcher = notify::raw_watcher(tx).unwrap();
 
     for path in watched_paths {
-        let path = match &action.base {
+        let path = match &task.base {
             Some(base) => Path::new(base).join(path),
             None => Path::new(path).into(),
         };
 
         if !path.exists() {
-            bail!("path '{}' of action '{}' does not exist", path.display(), name);
+            bail!("path '{}' of task '{}' does not exist", path.display(), name);
         }
 
         watcher.watch(&path, RecursiveMode::Recursive)?;
@@ -108,7 +108,7 @@ const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);
 /// from the watcher thread (`triggers`), debounces and executes tasks.
 fn executor(
     name: String,
-    action: cfg::Action,
+    task: cfg::Task,
     triggers: Receiver<Instant>,
     ctx: &Context,
 ) -> Result<()> {
@@ -136,7 +136,7 @@ fn executor(
     // Runs all given steps and returns the new state.
     let run_steps = |trigger, steps: &[cfg::Step]| -> Result<State> {
         for step in steps {
-            let mut running = step.start(&name, &action, ctx)?;
+            let mut running = step.start(&name, &task, ctx)?;
 
             // We have a busy loop here: We regularly check if new triggers
             // arrived, in which case we will cancel the step and enter the
@@ -163,10 +163,10 @@ fn executor(
     };
 
 
-    let on_start_tasks = action.run_steps();
-    let on_change_tasks = action.run_steps()
+    let on_start_tasks = task.run_steps();
+    let on_change_tasks = task.run_steps()
         .iter()
-        .chain(action.on_change_steps())
+        .chain(task.on_change_steps())
         .cloned()
         .collect::<Vec<_>>();
 

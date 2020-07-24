@@ -7,7 +7,7 @@ use crate::{
     context::{Context, ContextCreation},
 };
 
-mod action;
+mod task;
 mod args;
 mod cfg;
 mod context;
@@ -56,10 +56,10 @@ fn main() -> Result<()> {
         http::run(http_config, reload_requests, ctx.clone())?;
     }
 
-    // Run each action (actions which watch files will spawn a thread and keep
+    // Start each task (tasks which watch files will spawn a thread and keep
     // running).
-    for (name, action) in &ctx.config.actions {
-        action::run(&name, &action, &ctx)?;
+    for (name, task) in &ctx.config.tasks {
+        task::run(&name, &task, &ctx)?;
     }
 
     // Drop the context to drop all `Sender`s within it.

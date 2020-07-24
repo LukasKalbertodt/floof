@@ -22,14 +22,14 @@ pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub actions: HashMap<String, Action>,
+    pub tasks: HashMap<String, Task>,
     pub http: Option<Http>,
     pub watcher: Option<Watcher>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Action {
+pub struct Task {
     pub base: Option<String>,
     pub watch: Option<Vec<String>>,
     pub run: Option<Vec<Step>>,
@@ -155,12 +155,12 @@ impl Config {
             watcher.validate()?;
         }
 
-        for (name, action) in &self.actions {
-            action.validate().context(format!("invalid configuration for action '{}'", name))?;
+        for (name, task) in &self.tasks {
+            task.validate().context(format!("invalid configuration for task '{}'", name))?;
 
-            if action.has_reload_step() && self.http.is_none() {
+            if task.has_reload_step() && self.http.is_none() {
                 bail!(
-                    "action '{}' includes a 'reload' step, but no HTTP server is configured \
+                    "task '{}' includes a 'reload' step, but no HTTP server is configured \
                         (top level key 'http' is missing)",
                     name,
                 );
@@ -171,11 +171,11 @@ impl Config {
     }
 
     pub fn has_reload_step(&self) -> bool {
-        self.actions.values().any(|a| a.has_reload_step())
+        self.tasks.values().any(|a| a.has_reload_step())
     }
 }
 
-impl Action {
+impl Task {
     pub fn run_steps(&self) -> &[Step] {
         Self::steps(&self.run)
     }
@@ -264,7 +264,4 @@ impl Step {
 // watch settings:
 // - debounce length
 // - polling?
-// - these settings per action?
-//
-// per action:
-// - base which paths are relative to and commands are executed in
+// - these settings per task?

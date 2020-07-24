@@ -181,14 +181,14 @@ fn serve_ws(
         let sockets = sockets.clone();
         let ctx = ctx.clone();
         thread::spawn(move || {
-            for action_name in reload_requests {
+            for task_name in reload_requests {
                 if let Some(target) = proxy_target {
                     if !wait_until_socket_open(target, &ctx) {
                         continue;
                     }
                 }
 
-                ctx.ui.reload_browser(&action_name);
+                ctx.ui.reload_browser(&task_name);
 
                 // All connections are closed when the `TcpStream` inside those
                 // `WebSocket` is dropped.

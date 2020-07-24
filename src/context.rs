@@ -69,9 +69,9 @@ impl Context {
 
     /// Requests a reload in the browser, if `http.auto_reload` is enabled. Does
     /// nothing otherwise.
-    pub fn request_reload(&self, action_name: impl Into<String>) {
+    pub fn request_reload(&self, task_name: impl Into<String>) {
         if self.config.has_reload_step() {
-            self.reload_requests.send(action_name.into())
+            self.reload_requests.send(task_name.into())
                 .expect("bug: HTTP thread should be running, but reload requests channel hung up");
         }
     }
