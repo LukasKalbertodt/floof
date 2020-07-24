@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Error, Result};
 use crate::{
     ui::Ui,
-    config::Config,
+    cfg::Config,
 };
 
 

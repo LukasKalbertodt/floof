@@ -3,7 +3,7 @@
 use std::fmt;
 use anyhow::{bail, Context as _, Result};
 use serde::Deserialize;
-use crate::{config, context::Context};
+use crate::{cfg, context::Context};
 
 
 /// Result of executing a step.
@@ -32,7 +32,7 @@ pub trait Step {
     fn start(
         &self,
         action_name: &str,
-        action: &config::Action,
+        action: &cfg::Action,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>>;
 
@@ -40,7 +40,7 @@ pub trait Step {
     fn execute(
         &self,
         action_name: &str,
-        action: &config::Action,
+        action: &cfg::Action,
         ctx: &Context,
     ) -> Result<Outcome> {
         self.start(action_name, action, ctx)?.finish()
@@ -61,11 +61,11 @@ impl RunningStep for FinishedStep {
     }
 }
 
-impl Step for config::Step {
+impl Step for cfg::Step {
     fn start(
         &self,
         action_name: &str,
-        action: &config::Action,
+        action: &cfg::Action,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         match self {
@@ -93,7 +93,7 @@ impl Step for Copy {
     fn start(
         &self,
         _action_name: &str,
-        _action: &config::Action,
+        _action: &cfg::Action,
         _ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         todo!()
@@ -114,7 +114,7 @@ impl Step for Reload {
     fn start(
         &self,
         action_name: &str,
-        _action: &config::Action,
+        _action: &cfg::Action,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         ctx.request_reload(action_name.clone());
@@ -190,7 +190,7 @@ impl Step for Command {
     fn start(
         &self,
         _action_name: &str,
-        action: &config::Action,
+        action: &cfg::Action,
         ctx: &Context,
     ) -> Result<Box<dyn RunningStep>> {
         ctx.ui.run_command("on_start", self);

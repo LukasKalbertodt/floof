@@ -3,13 +3,13 @@ use anyhow::{Context as _, Result};
 use structopt::StructOpt;
 use crate::{
     args::Args,
-    config::Config,
+    cfg::Config,
     context::{Context, ContextCreation},
 };
 
 mod action;
 mod args;
-mod config;
+mod cfg;
 mod context;
 mod http;
 mod step;
@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     let args = Args::from_args();
 
     // Load configuration (either from specified or default path).
-    let default_path = Path::new(config::DEFAULT_FILENAME);
+    let default_path = Path::new(cfg::DEFAULT_FILENAME);
     let config = match &args.config {
         Some(path) => {
             Config::load(path)
@@ -32,7 +32,7 @@ fn main() -> Result<()> {
                 format!(
                     "failed to load configuration from default location '{}' \
                         (file exists, but is invalid)",
-                    config::DEFAULT_FILENAME,
+                    cfg::DEFAULT_FILENAME,
                 )
             })?
         }

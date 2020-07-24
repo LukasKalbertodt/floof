@@ -12,12 +12,12 @@ use hyper::{
 use tungstenite::WebSocket;
 
 use crate::{
-    config,
+    cfg,
     context::Context,
 };
 
 
-pub fn run(config: &config::Http, reload_requests: Receiver<String>, ctx: Context) -> Result<()> {
+pub fn run(config: &cfg::Http, reload_requests: Receiver<String>, ctx: Context) -> Result<()> {
     let (init_tx, init_rx) = mpsc::channel();
 
     // Start the HTTP server thread.
@@ -43,7 +43,7 @@ pub fn run(config: &config::Http, reload_requests: Receiver<String>, ctx: Contex
 
 #[tokio::main]
 pub async fn run_server(
-    config: &config::Http,
+    config: &cfg::Http,
     init_done: Sender<()>,
     ctx: &Context,
 ) -> Result<()> {
@@ -168,7 +168,7 @@ fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
 }
 
 fn serve_ws(
-    config: &config::Http,
+    config: &cfg::Http,
     reload_requests: Receiver<String>,
     init_done: Sender<()>,
     ctx: &Context,

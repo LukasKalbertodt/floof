@@ -7,7 +7,7 @@ use anyhow::{bail, Context as _, Result};
 use notify::{Watcher, RecursiveMode};
 
 use crate::{
-    config,
+    cfg,
     context::Context,
     step::{Outcome, Step as _},
 };
@@ -16,7 +16,7 @@ use crate::{
 /// Run all `on_start` tasks of the given action and, if the action watches
 /// files, start threads which watch those files and trigger corresponding
 /// `on_change` actions.
-pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
+pub fn run(name: &str, action: &cfg::Action, ctx: &Context) -> Result<()> {
     // Run all commands that we are supposed to run on start.
     let mut on_start_tasks = action.on_start_steps().to_vec();
     if action.watch.is_none() {
@@ -64,7 +64,7 @@ pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
 /// to the executor thread. Does no debouncing.
 fn watch(
     name: String,
-    action: config::Action,
+    action: cfg::Action,
     watched_paths: &[String],
     triggers: Sender<Instant>,
     init_done: Sender<()>,
@@ -108,7 +108,7 @@ const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);
 /// from the watcher thread (`triggers`), debounces and executes tasks.
 fn executor(
     name: String,
-    action: config::Action,
+    action: cfg::Action,
     triggers: Receiver<Instant>,
     ctx: &Context,
 ) -> Result<()> {
@@ -131,10 +131,10 @@ fn executor(
 
     let debounce_duration = ctx.config.watcher.as_ref()
         .map(|c| c.debounce())
-        .unwrap_or(config::DEFAULT_DEBOUNCE_DURATION);
+        .unwrap_or(cfg::DEFAULT_DEBOUNCE_DURATION);
 
     // Runs all given steps and returns the new state.
-    let run_steps = |trigger, steps: &[config::Step]| -> Result<State> {
+    let run_steps = |trigger, steps: &[cfg::Step]| -> Result<State> {
         for step in steps {
             let mut running = step.start(&name, &action, ctx)?;
 
