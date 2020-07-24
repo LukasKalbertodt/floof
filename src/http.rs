@@ -29,13 +29,13 @@ pub fn run(config: &config::Http, reload_requests: Receiver<String>, ctx: Contex
 
     // Potentially start the thread serving the websocket connection for
     // auto_reloads.
-    if ctx.config.auto_reload() {
+    if ctx.config.has_reload_step() {
         let config = config.clone();
         ctx.spawn_thread(move |ctx| serve_ws(&config, reload_requests, init_tx, ctx));
     }
 
     // Wait for all threads to have initialized
-    let waiting_for = if ctx.config.auto_reload() { 2 } else { 1 };
+    let waiting_for = if ctx.config.has_reload_step() { 2 } else { 1 };
     init_rx.iter().take(waiting_for).last();
 
     Ok(())
@@ -51,7 +51,7 @@ pub async fn run_server(
     let ws_addr = config.ws_addr();
 
     let service = if let Some(proxy_target) = config.proxy {
-        let auto_reload = ctx.config.auto_reload();
+        let auto_reload = ctx.config.has_reload_step();
 
         make_service_fn(move |_| {
             async move {

@@ -1,5 +1,4 @@
 use std::{
-    process::Command,
     sync::mpsc::{channel, Sender, Receiver, TryRecvError, RecvTimeoutError},
     thread, path::Path, time::{Duration, Instant},
 };
@@ -10,6 +9,7 @@ use notify::{Watcher, RecursiveMode};
 use crate::{
     config,
     context::Context,
+    step::{Outcome, Step as _},
 };
 
 
@@ -18,20 +18,17 @@ use crate::{
 /// `on_change` actions.
 pub fn run(name: &str, action: &config::Action, ctx: &Context) -> Result<()> {
     // Run all commands that we are supposed to run on start.
-    let mut on_start_tasks = action.on_start_commands().to_vec();
+    let mut on_start_tasks = action.on_start_steps().to_vec();
     if action.watch.is_none() {
         // If this action is not watching anything, we need to execute the tasks
         // here once. Otherwise, they are executed in the executor thread.
-        on_start_tasks.extend(action.run_commands().iter().cloned());
+        on_start_tasks.extend(action.run_steps().iter().cloned());
     }
 
-    for command in on_start_tasks {
-        ctx.ui.run_command("on_start", &command);
-        let status = command.to_std(&action.base).status()
-            .context(format!("failed to run `{}`", command))?;
-
-        if !status.success() {
-            bail!("'on_start' command for action '{}' failed (`{}`)", name, command);
+    for step in on_start_tasks {
+        let outcome = step.execute(name, action, ctx)?;
+        if outcome == Outcome::Failure {
+            bail!("'on_start' step for action '{}' failed", name);
         }
     }
 
@@ -136,25 +133,24 @@ fn executor(
         .map(|c| c.debounce())
         .unwrap_or(config::DEFAULT_DEBOUNCE_DURATION);
 
-    // Runs all given tasks and returns the new state.
-    let run_tasks = |trigger, tasks: &[config::Command]| -> Result<State> {
-        for command in tasks {
-            ctx.ui.run_command(trigger, command);
-            let mut child = command.to_std(&action.base).spawn()?;
+    // Runs all given steps and returns the new state.
+    let run_steps = |trigger, steps: &[config::Step]| -> Result<State> {
+        for step in steps {
+            let mut running = step.start(&name, &action, ctx)?;
 
             // We have a busy loop here: We regularly check if new triggers
-            // arrived, in which case we will kill the command and restart the
-            // outer loop. We also regularly check if the child is done. If so,
-            // we will exit this inner loop and proceed with the next command.
+            // arrived, in which case we will cancel the step and enter the
+            // debouncing state. We also regularly check if the step is done. If
+            // so, we will proceed with the next step.
             loop {
                 match triggers.recv_timeout(BUSY_WAIT_DURATION) {
                     Ok(t) => {
                         ctx.ui.change_detected(&name, debounce_duration);
-                        child.kill()?;
+                        running.cancel()?;
                         return Ok(State::Debouncing(t))
                     }
                     Err(RecvTimeoutError::Timeout) => {
-                        if child.try_wait()?.is_some() {
+                        if running.try_finish()?.is_some() {
                             break;
                         }
                     }
@@ -167,10 +163,10 @@ fn executor(
     };
 
 
-    let on_start_tasks = action.run_commands();
-    let on_change_tasks = action.run_commands()
+    let on_start_tasks = action.run_steps();
+    let on_change_tasks = action.run_steps()
         .iter()
-        .chain(action.on_change_commands())
+        .chain(action.on_change_steps())
         .cloned()
         .collect::<Vec<_>>();
 
@@ -179,7 +175,7 @@ fn executor(
     loop {
         match state {
             State::Initial => {
-                state = run_tasks("on_start", &on_start_tasks)?;
+                state = run_steps("on_start", &on_start_tasks)?;
             }
             State::WaitingForChange => {
                 let trigger_time = triggers.recv().unwrap_or_else(|_| on_disconnect());
@@ -219,47 +215,8 @@ fn executor(
             }
             State::RunOnChange => {
                 ctx.ui.run_on_change_handlers(&name);
-                if action.reload == Some(config::Reload::Early) {
-                    ctx.request_reload(name.clone());
-                }
-
-                state = run_tasks("on_change", &on_change_tasks)?;
-
-                if action.reload == Some(config::Reload::Late) {
-                    ctx.request_reload(name.clone());
-                }
+                state = run_steps("on_change", &on_change_tasks)?;
             }
         }
-    }
-}
-
-
-impl config::Command {
-    /// Creates a `std::process::Command` from the command specified in the
-    /// configuration.
-    fn to_std(&self, working_dir: &Option<String>) -> Command {
-        let (program, args) = match self {
-            config::Command::Simple(s) => {
-                let mut split = s.split_whitespace();
-                let program = split.next()
-                    .expect("bug: validation should ensure string is not empty");
-                let args: Vec<_> = split.collect();
-
-                (program, args)
-            }
-            config::Command::Explicit(v) => {
-                let program = v.get(0).expect("bug: validation should ensure vector is not empty");
-                let args = v[1..].iter().map(|s| s.as_str()).collect();
-
-                (program.as_str(), args)
-            }
-        };
-
-        let mut command = Command::new(&program);
-        command.args(args);
-        if let Some(working_dir) = working_dir {
-            command.current_dir(working_dir);
-        }
-        command
     }
 }

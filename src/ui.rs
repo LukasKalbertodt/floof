@@ -4,7 +4,7 @@ use std::{
 };
 use anyhow::Error;
 use termcolor::{BufferWriter, ColorChoice, ColorSpec, WriteColor};
-use crate::config::Command;
+use crate::step::Command;
 
 
 #[derive(Clone)]
@@ -84,7 +84,7 @@ impl Ui {
 
     pub fn run_command(&self, handler: &str, command: &Command) {
         let msg = format!("running ({}): {}", handler, command);
-        Message::status("🐇", msg).emit(self);
+        Message::status("▶️ ", msg).emit(self);
     }
 
     pub fn reload_browser(&self, action: &str) {
