@@ -76,7 +76,7 @@ impl Ui {
     }
 
     pub fn run_on_change_handlers(&self, task: &str) {
-        let msg = format!("[{}]change detected, executing handler...", task);
+        let msg = format!("[{}] change detected, executing handler...", task);
         Message::status("🔥", msg)
             .replace_previous()
             .emit(self);
@@ -89,7 +89,7 @@ impl Ui {
 
     pub fn reload_browser(&self, task: &str) {
         let msg = format!("[{}] reloading browser", task);
-        Message::status("↻ ", msg)
+        Message::status("♻️ ", msg)
             .replace_previous()
             .emit(self);
     }
