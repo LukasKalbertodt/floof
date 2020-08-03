@@ -1,19 +1,29 @@
+#![allow(unused_imports)] // TODO
+
 use std::path::Path;
 use anyhow::{Context as _, Result};
 use structopt::StructOpt;
 use crate::{
     args::Args,
     cfg::Config,
-    context::{Context, ContextCreation},
+    // context::{Context, ContextCreation},
 };
 
 mod task;
 mod args;
 mod cfg;
-mod context;
-mod http;
-mod step;
-mod ui;
+mod op;
+// mod context;
+// mod http;
+// mod step;
+// mod ui;
+
+// We "reexport" some symbols here to make importing them (in other modules)
+// easier and to avoid `task::Task` paths.
+pub(crate) use crate::{
+    task::Task,
+    op::Operation,
+};
 
 
 fn main() -> Result<()> {
@@ -21,58 +31,36 @@ fn main() -> Result<()> {
     let args = Args::from_args();
 
     // Load configuration (either from specified or default path).
-    let default_path = Path::new(cfg::DEFAULT_FILENAME);
-    let config = match &args.config {
-        Some(path) => {
-            Config::load(path)
-                .context(format!("failed to load configuration from '{}'", path.display()))?
-        }
-        None if default_path.exists() && default_path.is_file() => {
-            Config::load(default_path).with_context(|| {
-                format!(
-                    "failed to load configuration from default location '{}' \
-                        (file exists, but is invalid)",
-                    cfg::DEFAULT_FILENAME,
-                )
-            })?
-        }
-        None => {
-            eprintln!("No configuration found!");
-            eprintln!("A `watchboi.toml` has to exist in the current directory or \
-                the path to the configuration file has to be given via the \
-                `--config`/`-c` argument");
-            std::process::exit(1);
-        }
-    };
+    let config = Config::load(args.config.as_deref())?;
 
     println!("{:#?}", config);
 
 
-    // Create the context that is given to various threads and other functions.
-    let ContextCreation { ctx, reload_requests, errors } = Context::new(config);
+    // // Create the context that is given to various threads and other functions.
+    // let ContextCreation { ctx, reload_requests, errors } = Context::new(config);
 
-    // Start HTTP server if it is requested
-    if let Some(http_config) = &ctx.config.http {
-        http::run(http_config, reload_requests, ctx.clone())?;
-    }
+    // // Start HTTP server if it is requested
+    // if let Some(http_config) = &ctx.config.http {
+    //     http::run(http_config, reload_requests, ctx.clone())?;
+    // }
 
-    // Start each task (tasks which watch files will spawn a thread and keep
-    // running).
-    for (name, task) in &ctx.config.tasks {
-        task::run(&name, &task, &ctx)?;
-    }
+    // // Start each task (tasks which watch files will spawn a thread and keep
+    // // running).
+    // for (name, task) in &ctx.config.tasks {
+    //     task::run(&name, &task, &ctx)?;
+    // }
 
-    // Drop the context to drop all `Sender`s within it.
-    let ui = ctx.ui.clone();
-    drop(ctx);
+    // // Drop the context to drop all `Sender`s within it.
+    // let ui = ctx.ui.clone();
+    // drop(ctx);
 
-    // We collect errors on the main thread, exiting when the first one arrives.
-    match errors.recv() {
-        // There are no thread running, so we can just quit.
-        Err(_) => ui.exiting_no_watcher(),
-        // A thread returned an error.
-        Ok(e) => return Err(e),
-    }
+    // // We collect errors on the main thread, exiting when the first one arrives.
+    // match errors.recv() {
+    //     // There are no thread running, so we can just quit.
+    //     Err(_) => ui.exiting_no_watcher(),
+    //     // A thread returned an error.
+    //     Ok(e) => return Err(e),
+    // }
 
     Ok(())
 }
