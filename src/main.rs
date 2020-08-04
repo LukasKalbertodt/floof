@@ -1,7 +1,6 @@
 #![allow(unused_imports)] // TODO
 
-use std::path::Path;
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use structopt::StructOpt;
 use crate::{
     args::Args,
