@@ -3,14 +3,12 @@
 //     thread, path::Path, time::{Duration, Instant},
 // };
 
-use anyhow::{bail, Context as _, Result};
 // use notify::{Watcher, RecursiveMode};
 
-// use crate::{
-//     cfg,
-//     context::Context,
-//     step::{Outcome, Step as _},
-// };
+use crate::{
+    Operations,
+    prelude::*,
+};
 
 use crate::Operation;
 
@@ -18,7 +16,7 @@ use crate::Operation;
 #[derive(Debug)]
 pub struct Task {
     pub name: String,
-    pub operations: Vec<Box<dyn Operation>>,
+    pub operations: Operations,
 }
 
 impl Task {

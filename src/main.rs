@@ -1,8 +1,8 @@
 #![allow(unused_imports)] // TODO
 
-use anyhow::Result;
 use structopt::StructOpt;
 use crate::{
+    prelude::*,
     args::Args,
     cfg::Config,
     // context::{Context, ContextCreation},
@@ -12,6 +12,7 @@ mod task;
 mod args;
 mod cfg;
 mod op;
+mod prelude;
 // mod context;
 // mod http;
 // mod step;
@@ -21,7 +22,7 @@ mod op;
 // easier and to avoid `task::Task` paths.
 pub(crate) use crate::{
     task::Task,
-    op::Operation,
+    op::{Operation, Operations},
 };
 
 

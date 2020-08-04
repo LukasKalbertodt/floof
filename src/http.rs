@@ -3,7 +3,6 @@ use std::{
     sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex},
     thread, time::{Duration, Instant},
 };
-use anyhow::{bail, Result};
 use hyper::{
     Body, Client, Request, Response, Server, Uri, StatusCode,
     header,
@@ -12,6 +11,7 @@ use hyper::{
 use tungstenite::WebSocket;
 
 use crate::{
+    prelude::*,
     cfg,
     context::Context,
 };
