@@ -10,4 +10,9 @@ pub struct Args {
     /// current directory is used.
     #[structopt(long, short)]
     pub config: Option<PathBuf>,
+
+    /// If this flag is specified, the loaded configuration is printed for
+    /// debugging.
+    #[structopt(long)]
+    pub debug_config: bool,
 }

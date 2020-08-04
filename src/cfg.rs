@@ -27,6 +27,8 @@ pub struct Config {
 
 impl From<HashMap<String, Operations>> for Config {
     fn from(tasks: HashMap<String, Operations>) -> Self {
+        // We duplicate the name of the task here. This is only for convenience
+        // to has `name` in `Task`.
         let tasks = tasks.into_iter()
             .map(|(name, operations)| (name.clone(), Task { name, operations }))
             .collect();

@@ -33,7 +33,9 @@ fn main() -> Result<()> {
     // Load configuration (either from specified or default path).
     let config = Config::load(args.config.as_deref())?;
 
-    println!("{:#?}", config);
+    if args.debug_config {
+        println!("{:#?}", config);
+    }
 
 
     // // Create the context that is given to various threads and other functions.
