@@ -18,7 +18,6 @@ use crate::{
 pub struct Context {
     pub config: Arc<Config>,
     pub ui: Ui,
-    reload_requests: Sender<String>,
     errors: Sender<Error>,
 }
 
@@ -26,24 +25,20 @@ pub struct Context {
 pub struct ContextCreation {
     pub ctx: Context,
     pub errors: Receiver<Error>,
-    pub reload_requests: Receiver<String>,
 }
 
 impl Context {
     /// Creates a new context.
     pub fn new(config: Config) -> ContextCreation {
         let (errors_tx, errors_rx) = mpsc::channel();
-        let (reload_tx, reload_rx) = mpsc::channel();
 
         ContextCreation {
             ctx: Self {
                 config: Arc::new(config),
                 ui: Ui::new(errors_tx.clone()),
-                reload_requests: reload_tx,
                 errors: errors_tx,
             },
             errors: errors_rx,
-            reload_requests: reload_rx,
         }
     }
 
@@ -65,14 +60,5 @@ impl Context {
                 ctx.report_error(e);
             }
         });
-    }
-
-    /// Requests a reload in the browser, if `http.auto_reload` is enabled. Does
-    /// nothing otherwise.
-    pub fn request_reload(&self, task_name: impl Into<String>) {
-        if self.config.has_reload_step() {
-            self.reload_requests.send(task_name.into())
-                .expect("bug: HTTP thread should be running, but reload requests channel hung up");
-        }
     }
 }

@@ -4,7 +4,6 @@ use std::{
 };
 use anyhow::Error;
 use termcolor::{BufferWriter, ColorChoice, ColorSpec, WriteColor};
-use crate::step::Command;
 
 
 #[derive(Clone)]
@@ -82,10 +81,10 @@ impl Ui {
             .emit(self);
     }
 
-    pub fn run_command(&self, handler: &str, command: &Command) {
-        let msg = format!("running ({}): {}", handler, command);
-        Message::status("▶️ ", msg).emit(self);
-    }
+    // pub fn run_command(&self, handler: &str, command: &Command) {
+    //     let msg = format!("running ({}): {}", handler, command);
+    //     Message::status("▶️ ", msg).emit(self);
+    // }
 
     pub fn reload_browser(&self, task: &str) {
         let msg = format!("[{}] reloading browser", task);

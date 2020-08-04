@@ -27,6 +27,11 @@ impl Task {
 
         Ok(())
     }
+
+    pub fn run(&self, ctx: &Context) -> Result<()> {
+        println!("running task {} :3", self.name);
+        Ok(())
+    }
 }
 
 

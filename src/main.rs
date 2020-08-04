@@ -13,10 +13,10 @@ mod args;
 mod cfg;
 mod op;
 mod prelude;
-// mod context;
+mod context;
 // mod http;
 // mod step;
-// mod ui;
+mod ui;
 
 // We "reexport" some symbols here to make importing them (in other modules)
 // easier and to avoid `task::Task` paths.
@@ -38,19 +38,34 @@ fn main() -> Result<()> {
     }
 
 
-    // // Create the context that is given to various threads and other functions.
-    // let ContextCreation { ctx, reload_requests, errors } = Context::new(config);
+    // Create the context that is given to various threads and other functions.
+    let context::ContextCreation { ctx, errors } = Context::new(config);
 
-    // // Start HTTP server if it is requested
-    // if let Some(http_config) = &ctx.config.http {
-    //     http::run(http_config, reload_requests, ctx.clone())?;
-    // }
+    // Start default task.
+    match args.cmd {
+        None => {
+            match ctx.config.tasks.get("default") {
+                Some(task) => task.run(&ctx)?,
+                None => {
+                    eprintln!("No default task defined!");
+                    eprintln!("Either define the task 'default' in the configuration or \
+                        run `watchboi run <tasks...>` to run specific tasks");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(args::Command::Run { task }) => {
+            // Make sure that all task names exist before starting anything.
+            match ctx.config.tasks.get(&task) {
+                Some(task) => task.run(&ctx)?,
+                None => {
+                    eprintln!("Task '{}' not defined in configuration!", task);
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
 
-    // // Start each task (tasks which watch files will spawn a thread and keep
-    // // running).
-    // for (name, task) in &ctx.config.tasks {
-    //     task::run(&name, &task, &ctx)?;
-    // }
 
     // // Drop the context to drop all `Sender`s within it.
     // let ui = ctx.ui.clone();
