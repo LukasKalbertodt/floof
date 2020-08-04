@@ -10,50 +10,40 @@ use std::{
 };
 use anyhow::{bail, Context, Result};
 use serde::{Deserializer, Deserialize, de::{self, MapAccess, SeqAccess, Visitor}};
-// use crate::step;
 use crate::{
     Operation, Task,
-    op::{Command, Copy},
+    op::{Command, Copy, Http},
 };
 
 
 /// The default filename from which to load the configuration.
 pub const DEFAULT_FILENAME: &str = "watchboi.yaml";
 
-// pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
-
 
 /// The root configuration object.
 #[derive(Debug, Deserialize)]
-#[serde(from = "HashMap<String, TaskConfig>")]
+#[serde(from = "HashMap<String, Operations>")]
 pub struct Config {
     pub tasks: HashMap<String, Task>,
 }
 
-impl From<HashMap<String, TaskConfig>> for Config {
-    fn from(tasks: HashMap<String, TaskConfig>) -> Self {
+impl From<HashMap<String, Operations>> for Config {
+    fn from(tasks: HashMap<String, Operations>) -> Self {
         let tasks = tasks.into_iter()
-            .map(|(name, TaskConfig(operations))| (name.clone(), Task { name, operations }))
+            .map(|(name, operations)| (name.clone(), Task { name, operations }))
             .collect();
 
         Self { tasks }
     }
 }
 
-/// A task is simply defined by a list of operations.
-#[derive(Debug, Deserialize)]
-#[serde(from = "Vec<Box<dyn Operation>>")]
-struct TaskConfig(Vec<Box<dyn Operation>>);
-
-impl From<Vec<Box<dyn Operation>>> for TaskConfig {
-    fn from(ops: Vec<Box<dyn Operation>>) -> Self {
-        Self(ops)
-    }
-}
+/// A task is defined by a list of operations.
+type Operations = Vec<Box<dyn Operation>>;
 
 
-
-macro_rules! define_ops {
+// Helper macro to avoid code duplication. Implements `Deserialize` for
+// `Box<dyn Operation>`.
+macro_rules! impl_deserialize_for_op {
     ($($tag:literal => $ty:ident ,)*) => {
         impl<'de> Deserialize<'de> for Box<dyn Operation> {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -118,20 +108,12 @@ macro_rules! define_ops {
     };
 }
 
-define_ops![
+impl_deserialize_for_op![
     "command" => Command,
     "copy" => Copy,
+    "http" => Http,
 ];
 
-
-
-// #[derive(Debug, Clone, Deserialize)]
-// #[serde(deny_unknown_fields)]
-// pub struct Http {
-//     pub addr: Option<SocketAddr>,
-//     pub proxy: Option<SocketAddr>,
-//     pub ws_addr: Option<SocketAddr>,
-// }
 
 // #[derive(Debug, Clone, Deserialize)]
 // #[serde(deny_unknown_fields)]
@@ -205,37 +187,9 @@ impl Config {
 
         Ok(())
     }
-
-    // pub fn has_reload_step(&self) -> bool {
-    //     self.tasks.values().any(|a| a.has_reload_step())
-    // }
 }
 
 // impl Task {
-//     pub fn run_steps(&self) -> &[Step] {
-//         Self::steps(&self.run)
-//     }
-//     pub fn on_start_steps(&self) -> &[Step] {
-//         Self::steps(&self.on_start)
-//     }
-//     pub fn on_change_steps(&self) -> &[Step] {
-//         Self::steps(&self.on_change)
-//     }
-
-//     fn steps(steps: &Option<Vec<Step>>) -> &[Step] {
-//         match steps {
-//             None => &[],
-//             Some(v) => v,
-//         }
-//     }
-
-//     fn has_reload_step(&self) -> bool {
-//         self.run_steps().iter()
-//                 .chain(self.on_start_steps())
-//                 .chain(self.on_change_steps())
-//                 .any(|s| matches!(s, Step::Reload(_)))
-//     }
-
 //     fn validate(&self) -> Result<()> {
 //         if self.on_change.is_some() && self.watch.is_none() {
 //             bail!("field 'on_change' requires 'watch' to be specified \
@@ -257,20 +211,6 @@ impl Config {
 //             step.validate().context("invalid 'run' steps")?;
 //         }
 
-//         Ok(())
-//     }
-// }
-
-// impl Http {
-//     pub fn addr(&self) -> SocketAddr {
-//         self.addr.unwrap_or(([127, 0, 0, 1], 8030).into())
-//     }
-
-//     pub fn ws_addr(&self) -> SocketAddr {
-//         self.ws_addr.unwrap_or(([127, 0, 0, 1], 8031).into())
-//     }
-
-//     fn validate(&self) -> Result<()> {
 //         Ok(())
 //     }
 // }
