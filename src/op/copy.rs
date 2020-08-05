@@ -1,5 +1,9 @@
 use serde::Deserialize;
-use super::Operation;
+use crate::{
+    Context, Task,
+    prelude::*,
+};
+use super::{Finished, Operation, Operations, Outcome, RunningOperation};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9,5 +13,7 @@ pub struct Copy {
 }
 
 impl Operation for Copy {
-
+    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+        Ok(Box::new(Finished(Outcome::Success)))
+    }
 }

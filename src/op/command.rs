@@ -1,6 +1,13 @@
+use std::{
+    fmt,
+    convert::{TryFrom, TryInto},
+};
 use serde::Deserialize;
-use std::convert::{TryFrom, TryInto};
-use super::Operation;
+use crate::{
+    Context, Task,
+    prelude::*,
+};
+use super::{Finished, Operation, Operations, Outcome, RunningOperation};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Command {
@@ -61,6 +68,28 @@ impl TryFrom<RawProgramAndArgs> for ProgramAndArgs {
     }
 }
 
+impl fmt::Display for ProgramAndArgs {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let print = |f: &mut fmt::Formatter, s: &str| {
+            if s.contains(char::is_whitespace) {
+                write!(f, r#""{}""#, s)
+            } else {
+                write!(f, "{}", s)
+            }
+        };
+
+
+        print(f, &self.program)?;
+        for arg in &self.args {
+            write!(f, " ")?;
+            print(f, arg)?;
+        }
+
+        Ok(())
+    }
+}
+
+
 impl From<ProgramAndArgs> for Command {
     fn from(src: ProgramAndArgs) -> Self {
         Self {
@@ -82,4 +111,45 @@ impl Command {
 }
 
 impl Operation for Command {
+    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+        msg!(run [&task.name]["command"] "running: {}", self.run);
+
+        // Build `std::process::Command`.
+        let mut command = std::process::Command::new(&self.run.program);
+        command.args(&self.run.args);
+        if let Some(workdir) = &self.workdir {
+            command.current_dir(workdir);
+        }
+
+        // Run the command and get its status code
+        let child = command.spawn().context(format!("failed to spawn `{}`", self.run))?;
+        Ok(Box::new(RunningCommand { child }))
+    }
+}
+
+struct RunningCommand {
+    child: std::process::Child,
+}
+
+fn exit_status_to_outcome(status: std::process::ExitStatus) -> Outcome {
+    if status.success() {
+        Outcome::Success
+    } else {
+        Outcome::Failure
+    }
+}
+
+impl RunningOperation for RunningCommand {
+    fn finish(&mut self) -> Result<Outcome> {
+        let status = self.child.wait().context("failed to wait for running process")?;
+        Ok(exit_status_to_outcome(status))
+    }
+    fn try_finish(&mut self) -> Result<Option<Outcome>> {
+        let status = self.child.try_wait().context("failed to wait for running process")?;
+        Ok(status.map(exit_status_to_outcome))
+    }
+    fn cancel(&mut self) -> Result<()> {
+        self.child.kill()?;
+        Ok(())
+    }
 }

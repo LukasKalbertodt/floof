@@ -2,7 +2,11 @@ use std::{
     time::Duration,
 };
 use serde::Deserialize;
-use super::{Operation, Operations};
+use crate::{
+    Context, Task,
+    prelude::*,
+};
+use super::{Finished, Operation, Operations, Outcome, RunningOperation};
 
 
 const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
@@ -17,5 +21,7 @@ pub struct Watch {
 }
 
 impl Operation for Watch {
-
+    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+        Ok(Box::new(Finished(Outcome::Success)))
+    }
 }

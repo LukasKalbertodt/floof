@@ -31,6 +31,11 @@ impl Task {
     pub fn run(&self, ctx: &Context) -> Result<()> {
         let name = &self.name;
         verbose!(none [name] - "Starting task", self.name);
+
+        for op in &self.operations {
+            op.run(self, ctx)?;
+        }
+
         Ok(())
     }
 }

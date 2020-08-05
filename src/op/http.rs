@@ -4,7 +4,11 @@ use std::{
     net::{SocketAddr, ToSocketAddrs}, fmt,
 };
 use serde::Deserialize;
-use super::Operation;
+use crate::{
+    Context, Task,
+    prelude::*,
+};
+use super::{Finished, Operation, Operations, Outcome, RunningOperation};
 
 
 #[derive(Debug, Clone, Deserialize)]
@@ -20,7 +24,9 @@ pub struct Http {
 }
 
 impl Operation for Http {
-
+    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+        Ok(Box::new(Finished(Outcome::Success)))
+    }
 }
 
 #[derive(Clone, Deserialize)]

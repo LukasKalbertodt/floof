@@ -41,10 +41,6 @@ fn main() -> Result<()> {
         println!("{:#?}", config);
     }
 
-    msg!(info - - "Starting up watchboi :)");
-    msg!(eye ["frontend"]["watch"] "Watching {[yellow]}", "Cargo.toml");
-
-
     // Create the context that is given to various threads and other functions.
     let context::ContextCreation { ctx, errors } = Context::new(config);
 

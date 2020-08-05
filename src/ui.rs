@@ -76,7 +76,7 @@ macro_rules! msg {
     (@icon none) => { " " };
     (@icon info) => { "ℹ️" };
     (@icon fire) => { "🔥" };
-    (@icon play) => { "▶️" };
+    (@icon run) => { "▶️" };
     (@icon reload) => { "♻️" };
     (@icon eye) => { "👁" };
     (@icon $other:tt) => { $other };
