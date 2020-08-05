@@ -1,5 +1,6 @@
+use std::io::Write;
 use once_cell::sync::OnceCell;
-use termcolor::{BufferWriter, ColorChoice};
+use termcolor::{Buffer, BufferWriter, ColorChoice};
 use crate::{
     Args,
     prelude::*,
@@ -44,19 +45,35 @@ pub fn init(args: &Args) -> Result<()> {
     Ok(())
 }
 
+pub fn print_prefix(
+    mut buf: &mut Buffer,
+    icon: &str,
+    task: Option<&str>,
+    op: Option<&str>,
+) -> Result<(), std::io::Error> {
+    bunt::write!(buf, "{[blue]} {}  ", crate::ui::PREFIX, icon)?;
+
+    if let Some(task) = task {
+        bunt::write!(buf, "{$black+intense}[{[blue+intense+bold]}]{/$}", task)?;
+    }
+    if let Some(op) = op {
+        bunt::write!(buf, "{$black+intense}[{[blue+intense]}]{/$}", op)?;
+    }
+
+    if task.is_some() || op.is_some() {
+        write!(buf, " ")?;
+    }
+
+    Ok(())
+}
+
 /// Emit a message.
 macro_rules! msg {
-    (@task -, $buf:ident) => {};
-    (@task [$inner:expr], $buf:ident) => {
-        bunt::write!($buf, "[{[blue+intense+bold]}]", $inner)?;
-    };
-    (@op -, $buf:ident) => {};
-    (@op [$inner:expr], $buf:ident) => {
-        bunt::write!($buf, "[{[blue+intense]}] ", $inner)?;
-    };
+    (@to_option -) => { None };
+    (@to_option [$inner:expr]) => { Some($inner) };
 
     // Still unused: 📸 🔔 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂 👋
-    (@icon none) => { "" };
+    (@icon none) => { " " };
     (@icon info) => { "ℹ️" };
     (@icon fire) => { "🔥" };
     (@icon play) => { "▶️" };
@@ -68,10 +85,12 @@ macro_rules! msg {
         let w = crate::ui::WRITER.get().expect("bug: ui not initialized yet");
         let mut buf = w.buffer();
         (|| -> Result<(), std::io::Error> {
-            bunt::write!(buf, "{[blue]} ", crate::ui::PREFIX)?;
-            bunt::write!(buf, "{}  ", msg!(@icon $icon))?;
-            msg!(@task $task, buf);
-            msg!(@op $op, buf);
+            crate::ui::print_prefix(
+                &mut buf,
+                msg!(@icon $icon),
+                msg!(@to_option $task),
+                msg!(@to_option $op),
+            )?;
             bunt::writeln!(buf, $($t)*)?;
 
             w.print(&buf)?;

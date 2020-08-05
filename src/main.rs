@@ -43,7 +43,6 @@ fn main() -> Result<()> {
 
     msg!(info - - "Starting up watchboi :)");
     msg!(eye ["frontend"]["watch"] "Watching {[yellow]}", "Cargo.toml");
-    verbose!(none - - "buhu");
 
 
     // Create the context that is given to various threads and other functions.
