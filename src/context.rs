@@ -7,7 +7,6 @@ use std::{
 };
 use crate::{
     prelude::*,
-    ui::Ui,
     cfg::Config,
 };
 
@@ -17,7 +16,6 @@ use crate::{
 #[derive(Clone)]
 pub struct Context {
     pub config: Arc<Config>,
-    pub ui: Ui,
     errors: Sender<Error>,
 }
 
@@ -35,7 +33,6 @@ impl Context {
         ContextCreation {
             ctx: Self {
                 config: Arc::new(config),
-                ui: Ui::new(errors_tx.clone()),
                 errors: errors_tx,
             },
             errors: errors_rx,

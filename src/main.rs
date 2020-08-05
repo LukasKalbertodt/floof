@@ -3,10 +3,12 @@
 use structopt::StructOpt;
 use crate::{
     prelude::*,
-    args::Args,
     cfg::Config,
     // context::{Context, ContextCreation},
 };
+
+#[macro_use]
+mod ui;
 
 mod task;
 mod args;
@@ -16,11 +18,11 @@ mod prelude;
 mod context;
 // mod http;
 // mod step;
-mod ui;
 
 // We "reexport" some symbols here to make importing them (in other modules)
 // easier and to avoid `task::Task` paths.
 pub(crate) use crate::{
+    args::Args,
     task::Task,
     op::{Operation, Operations},
 };
@@ -30,12 +32,18 @@ fn main() -> Result<()> {
     // Read CLI args.
     let args = Args::from_args();
 
+    ui::init(&args)?;
+
     // Load configuration (either from specified or default path).
     let config = Config::load(args.config.as_deref())?;
 
     if args.debug_config {
         println!("{:#?}", config);
     }
+
+    msg!(info - - "Starting up watchboi :)");
+    msg!(eye ["frontend"]["watch"] "Watching {[yellow]}", "Cargo.toml");
+    verbose!(none - - "buhu");
 
 
     // Create the context that is given to various threads and other functions.

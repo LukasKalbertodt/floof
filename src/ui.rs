@@ -1,254 +1,173 @@
-use std::{
-    io::{self, Write},
-    sync::{atomic::{Ordering, AtomicBool}, mpsc::Sender, Arc}, fmt, net::SocketAddr, time::Duration,
+use once_cell::sync::OnceCell;
+use termcolor::{BufferWriter, ColorChoice};
+use crate::{
+    Args,
+    prelude::*,
 };
-use anyhow::Error;
-use termcolor::{BufferWriter, ColorChoice, ColorSpec, WriteColor};
 
 
-#[derive(Clone)]
-pub struct Ui {
-    writer: Arc<BufferWriter>,
-    errors: Sender<Error>,
-    at_start_of_line: Arc<AtomicBool>,
+/// Level of verbosity, controlling which messages to print and which not.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Verbosity {
+    Normal,
+    Verbose,
+    Trace,
 }
 
-const PREFIX: &str = "════════════";
-
-impl Ui {
-    pub fn new(errors: Sender<Error>) -> Self {
-        Self {
-            // TODO: maybe make color choice configurable
-            writer: Arc::new(BufferWriter::stdout(ColorChoice::Auto)),
-            errors,
-            at_start_of_line: Arc::new(AtomicBool::new(true)),
+impl Verbosity {
+    fn from_count(count: u8) -> Result<Self> {
+        match count {
+            0 => Ok(Self::Normal),
+            1 => Ok(Self::Verbose),
+            2 => Ok(Self::Trace),
+            _ => Err(anyhow!("invalid verbosity level: flag -v specified too often")),
         }
-    }
-
-    pub fn watching(&self, task: &str, paths: &[impl fmt::Display]) {
-        let mut paths_str = String::new();
-        const MAX_PATHS: usize = 3;
-        for (i, path) in paths.iter().enumerate() {
-            match i {
-                0 => paths_str = format!("`{}`", path),
-                i if i >= MAX_PATHS => {
-                    paths_str += &format!(" and {} more", paths.len() - MAX_PATHS);
-                    break;
-                }
-                i if i == paths.len() - 1 => paths_str +=  &format!(" and `{}`", path),
-                _ => paths_str += &format!(", `{}`", path),
-            }
-        }
-
-        Message::service("👁 ", format!("[{}] watching: {}", task, paths_str)).emit(self);
-    }
-
-    pub fn listening(&self, addr: &SocketAddr) {
-        Message::service("🌀", format!("listening on 'http://{}'", addr)).emit(self);
-    }
-
-    pub fn listening_ws(&self, addr: &SocketAddr) {
-        Message::service("🌀", format!("websockets listening on 'ws://{}'", addr)).emit(self);
-    }
-
-    pub fn exiting_no_watcher(&self) {
-        Message::status("👋", "no HTTP server or watcher configured: we are done already! Bye :)")
-            .emit(self);
-    }
-
-    pub fn change_detected(&self, task: &str, debounce_duration: Duration) {
-        // 📸 🔔 🔥 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂
-
-        let duration = if debounce_duration >= Duration::from_secs(1) {
-            format!("{:.1?}", debounce_duration)
-        } else {
-            format!("{:.0?}", debounce_duration)
-        };
-        let msg = format!(
-            "[{}] change detected, debouncing for {}...",
-            task,
-            duration,
-        );
-        Message::status("⏳", msg)
-            .without_line_ending()
-            .emit(self);
-    }
-
-    pub fn run_on_change_handlers(&self, task: &str) {
-        let msg = format!("[{}] change detected, executing handler...", task);
-        Message::status("🔥", msg)
-            .replace_previous()
-            .emit(self);
-    }
-
-    // pub fn run_command(&self, handler: &str, command: &Command) {
-    //     let msg = format!("running ({}): {}", handler, command);
-    //     Message::status("▶️ ", msg).emit(self);
-    // }
-
-    pub fn reload_browser(&self, task: &str) {
-        let msg = format!("[{}] reloading browser", task);
-        Message::status("♻️ ", msg)
-            .replace_previous()
-            .emit(self);
-    }
-
-    pub fn port_wait_timeout(&self, target: SocketAddr, duration: Duration) {
-        let msg = format!(
-            "Timeout reached when listening for proxy target ({}) to get ready. \
-                Port refused connection for {:?}. Autoreload is cancelled.",
-            target,
-            duration
-        );
-        Message::error("⚠", msg).emit(self);
     }
 }
 
+// We store these two global so that easy macros can be used. We don't really
+// have any downside from making them global.
+pub static WRITER: OnceCell<BufferWriter> = OnceCell::new();
+pub static VERBOSITY: OnceCell<Verbosity> = OnceCell::new();
 
-// ╞════════════╡
-// ════════════╡ Peter
-// ━━━┝ ┣ ┫  ┥
-// ━━━━━━━━━━━━┥ Peter
+pub const PREFIX: &str = "════════════╡";
 
-struct Message {
-    kind: MessageKind,
-    icon: String,
-    msg: String,
-    end_line: bool,
-    replace_previous: bool,
+/// Initializes the UI system with the settings from the args.
+pub fn init(args: &Args) -> Result<()> {
+    WRITER.set(BufferWriter::stdout(args.color))
+        .map_err(|_| ())
+        .expect("bug: ui already initialized");
+    VERBOSITY.set(Verbosity::from_count(args.verbose)?)
+        .map_err(|_| ())
+        .expect("bug: ui already initialized");
+
+    Ok(())
 }
 
-impl Message {
-    fn new(kind: MessageKind, icon: impl Into<String>, msg: impl Into<String>) -> Self {
-        Self {
-            kind,
-            icon: icon.into(),
-            msg: msg.into(),
-            end_line: true,
-            replace_previous: false,
-        }
-    }
+/// Emit a message.
+macro_rules! msg {
+    (@task -, $buf:ident) => {};
+    (@task [$inner:expr], $buf:ident) => {
+        bunt::write!($buf, "[{[blue+intense+bold]}]", $inner)?;
+    };
+    (@op -, $buf:ident) => {};
+    (@op [$inner:expr], $buf:ident) => {
+        bunt::write!($buf, "[{[blue+intense]}] ", $inner)?;
+    };
 
-    fn service(icon: impl Into<String>, msg: impl Into<String>) -> Self {
-        Self::new(MessageKind::Service, icon, msg)
-    }
+    // Still unused: 📸 🔔 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂 👋
+    (@icon none) => { "" };
+    (@icon info) => { "ℹ️" };
+    (@icon fire) => { "🔥" };
+    (@icon play) => { "▶️" };
+    (@icon reload) => { "♻️" };
+    (@icon eye) => { "👁" };
+    (@icon $other:tt) => { $other };
 
-    fn status(icon: impl Into<String>, msg: impl Into<String>) -> Self {
-        Self::new(MessageKind::Status, icon, msg)
-    }
-    fn error(icon: impl Into<String>, msg: impl Into<String>) -> Self {
-        Self::new(MessageKind::Error, icon, msg)
-    }
+    ($icon:tt $task:tt $op:tt $($t:tt)*) => {{
+        let w = crate::ui::WRITER.get().expect("bug: ui not initialized yet");
+        let mut buf = w.buffer();
+        (|| -> Result<(), std::io::Error> {
+            bunt::write!(buf, "{[blue]} ", crate::ui::PREFIX)?;
+            bunt::write!(buf, "{}  ", msg!(@icon $icon))?;
+            msg!(@task $task, buf);
+            msg!(@op $op, buf);
+            bunt::writeln!(buf, $($t)*)?;
 
-    fn without_line_ending(self) -> Self {
-        Self {
-            end_line: false,
-            ..self
-        }
-    }
-
-    fn replace_previous(self) -> Self {
-        Self {
-            replace_previous: true,
-            ..self
-        }
-    }
-
-    fn emit(&self, ui: &Ui) {
-        let run = || -> Result<(), Error> {
-            let mut buf = ui.writer.buffer();
-
-            if !self.replace_previous && !ui.at_start_of_line.load(Ordering::SeqCst) {
-                writeln!(buf)?;
-            } else if self.replace_previous {
-                let spaces = "                    ";
-                write!(buf, "\r{0}{0}{0}{0}{0}{0}\r", spaces)?;
-            }
-
-            buf.set_color(&colors::prefix())?;
-            write!(buf, "{}", PREFIX)?;
-            buf.set_color(&colors::icon())?;
-            write!(buf, " {} ", self.icon)?;
-            buf.set_color(&self.kind.msg_color())?;
-            write!(buf, "{}", self.msg)?;
-
-            if self.end_line {
-                writeln!(buf)?;
-            }
-
-            buf.reset()?;
-            ui.writer.print(&buf)?;
-            io::stdout().flush()?;
-
+            w.print(&buf)?;
             Ok(())
-        };
+        })().expect("error writing to stdout :-(");
+    }};
+}
 
-        if let Err(e) = run() {
-            // We ignore the error: if the channel is dropped, all threads will
-            // soon be removed anyway.
-            let _ = ui.errors.send(e);
+/// Emit a verbose message that is only printed if the verbosity level is
+/// `Verbose` or `Trace`.
+macro_rules! verbose {
+    ($($t:tt)*) => {{
+        let level = *crate::ui::VERBOSITY.get().expect("bug: ui not initialized yet");
+        if level == crate::ui::Verbosity::Verbose || level == crate::ui::Verbosity::Trace {
+            msg!($($t)*);
         }
-    }
+    }};
 }
 
-enum MessageKind {
-    /// A message about a service, usually about starting one. E.g. starting the
-    /// HTTP server or starting to listen.
-    Service,
 
-    /// General messages about some kind of status.
-    Status,
+// impl Ui {
+//     // pub fn watching(&self, task: &str, paths: &[impl fmt::Display]) {
+//     //     let mut paths_str = String::new();
+//     //     const MAX_PATHS: usize = 3;
+//     //     for (i, path) in paths.iter().enumerate() {
+//     //         match i {
+//     //             0 => paths_str = format!("`{}`", path),
+//     //             i if i >= MAX_PATHS => {
+//     //                 paths_str += &format!(" and {} more", paths.len() - MAX_PATHS);
+//     //                 break;
+//     //             }
+//     //             i if i == paths.len() - 1 => paths_str +=  &format!(" and `{}`", path),
+//     //             _ => paths_str += &format!(", `{}`", path),
+//     //         }
+//     //     }
 
-    /// Something bad, displayed in red to catch attention.
-    Error,
-}
+//     //     Message::service("👁 ", format!("[{}] watching: {}", task, paths_str)).emit(self);
+//     // }
 
-impl MessageKind {
-    fn msg_color(&self) -> ColorSpec {
-        match self {
-            Self::Service => colors::magenta(),
-            Self::Status => colors::bold_blue(),
-            Self::Error => colors::bold_red(),
-        }
-    }
-}
+//     // pub fn listening(&self, addr: &SocketAddr) {
+//     //     Message::service("🌀", format!("listening on 'http://{}'", addr)).emit(self);
+//     // }
 
-mod colors {
-    use termcolor::{Color, ColorSpec};
+//     // pub fn listening_ws(&self, addr: &SocketAddr) {
+//     //     Message::service("🌀", format!("websockets listening on 'ws://{}'", addr)).emit(self);
+//     // }
 
-    pub fn bold_blue() -> ColorSpec {
-        let mut out = blue();
-        out.set_intense(true);
-        out
-    }
-    pub fn blue() -> ColorSpec {
-        let mut out = ColorSpec::new();
-        out.set_fg(Some(Color::Blue));
-        out.set_intense(true);
-        out
-    }
-    pub fn bold_red() -> ColorSpec {
-        let mut out = ColorSpec::new();
-        out.set_fg(Some(Color::Red));
-        out.set_bold(true);
-        out
-    }
-    pub fn magenta() -> ColorSpec {
-        let mut out = ColorSpec::new();
-        out.set_fg(Some(Color::Magenta));
-        out.set_intense(true);
-        out
-    }
-    pub fn icon() -> ColorSpec {
-        let mut out = ColorSpec::new();
-        out.set_fg(Some(Color::Yellow));
-        out.set_intense(true);
-        out
-    }
-    pub fn prefix() -> ColorSpec {
-        let mut out = ColorSpec::new();
-        out.set_fg(Some(Color::Green));
-        out.set_intense(true);
-        out
-    }
-}
+//     // pub fn exiting_no_watcher(&self) {
+//     //     Message::status("", "no HTTP server or watcher configured: we are done already! Bye :)")
+//     //         .emit(self);
+//     // }
+
+//     // pub fn change_detected(&self, task: &str, debounce_duration: Duration) {
+//     //     // 📸 🔔 🔥 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂
+
+//     //     let duration = if debounce_duration >= Duration::from_secs(1) {
+//     //         format!("{:.1?}", debounce_duration)
+//     //     } else {
+//     //         format!("{:.0?}", debounce_duration)
+//     //     };
+//     //     let msg = format!(
+//     //         "[{}] change detected, debouncing for {}...",
+//     //         task,
+//     //         duration,
+//     //     );
+//     //     Message::status("⏳", msg)
+//     //         .without_line_ending()
+//     //         .emit(self);
+//     // }
+
+//     // pub fn run_on_change_handlers(&self, task: &str) {
+//     //     let msg = format!("[{}] change detected, executing handler...", task);
+//     //     Message::status("🔥", msg)
+//     //         .replace_previous()
+//     //         .emit(self);
+//     // }
+
+//     // pub fn run_command(&self, handler: &str, command: &Command) {
+//     //     let msg = format!("running ({}): {}", handler, command);
+//     //     Message::status("▶️ ", msg).emit(self);
+//     // }
+
+//     // pub fn reload_browser(&self, task: &str) {
+//     //     let msg = format!("[{}] reloading browser", task);
+//     //     Message::status("♻️ ", msg)
+//     //         .replace_previous()
+//     //         .emit(self);
+//     // }
+
+//     // pub fn port_wait_timeout(&self, target: SocketAddr, duration: Duration) {
+//     //     let msg = format!(
+//     //         "Timeout reached when listening for proxy target ({}) to get ready. \
+//     //             Port refused connection for {:?}. Autoreload is cancelled.",
+//     //         target,
+//     //         duration
+//     //     );
+//     //     Message::error("⚠", msg).emit(self);
+//     // }
+// }
