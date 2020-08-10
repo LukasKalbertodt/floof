@@ -52,7 +52,7 @@ fn main() -> Result<()> {
                 None => {
                     eprintln!("No default task defined!");
                     eprintln!("Either define the task 'default' in the configuration or \
-                        run `watchboi run <tasks...>` to run specific tasks");
+                        run `watchboi run <task>` to run a specific task");
                     std::process::exit(1);
                 }
             }

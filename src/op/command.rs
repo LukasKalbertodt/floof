@@ -101,6 +101,8 @@ impl From<ProgramAndArgs> for Command {
 
 
 impl Command {
+    pub const KEYWORD: &'static str = "command";
+
     pub fn from_simple(s: &str) -> Result<Self, String> {
         Ok(ProgramAndArgs::try_from(RawProgramAndArgs::Simple(s.into()))?.into())
     }
@@ -111,6 +113,10 @@ impl Command {
 }
 
 impl Operation for Command {
+    fn keyword(&self) -> &'static str {
+        Self::KEYWORD
+    }
+
     fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         msg!(run [&task.name]["command"] "running: {}", self.run);
 
@@ -122,8 +128,19 @@ impl Operation for Command {
         }
 
         // Run the command and get its status code
-        let child = command.spawn().context(format!("failed to spawn `{}`", self.run))?;
-        Ok(Box::new(RunningCommand { child }))
+        match command.spawn() {
+            Ok(child) => Ok(Box::new(RunningCommand { child })),
+            Err(e) => {
+                let mut context = format!("failed to spawn `{}`", self.run);
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    context += &format!(
+                        " (you probably don't have the command '{}' installed)",
+                        self.run.program,
+                    );
+                }
+                Err(e).context(context)
+            }
+        }
     }
 }
 

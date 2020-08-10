@@ -18,10 +18,17 @@ pub use self::{
 };
 
 
+/// Multiple dynamically dispatched operations.
 pub type Operations = Vec<Box<dyn Operation>>;
 
-
+/// An abstract operation. Is part of a task and can be part of other
+/// operations.
 pub trait Operation: fmt::Debug + 'static + Send + Sync {
+    /// Returns the keyword that is used in the configuration to refer to this
+    /// operation. This is a method instead of a constant to keep this trait
+    /// object safe.
+    fn keyword(&self) -> &'static str;
+
     /// Starts the operation.
     fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>>;
 
@@ -30,12 +37,15 @@ pub trait Operation: fmt::Debug + 'static + Send + Sync {
         self.start(task, ctx)?.finish()
     }
 
+    /// Validates the operation's configuration. The implementing type can
+    /// return an error here to indicate that the configuration has some logic
+    /// errors. This is called after parsing the configuration file.
     fn validate(&self) -> Result<()> {
         Ok(())
     }
 }
 
-/// An operation that has been started and that is potentially already finished.
+/// An operation that has been started and that is potentially still running.
 pub trait RunningOperation {
     /// Blocks and runs the operation to completion.
     fn finish(&mut self) -> Result<Outcome>;

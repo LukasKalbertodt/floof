@@ -12,7 +12,15 @@ pub struct Copy {
     dst: String,
 }
 
+impl Copy {
+    pub const KEYWORD: &'static str = "copy";
+}
+
 impl Operation for Copy {
+    fn keyword(&self) -> &'static str {
+        Self::KEYWORD
+    }
+
     fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         Ok(Box::new(Finished(Outcome::Success)))
     }

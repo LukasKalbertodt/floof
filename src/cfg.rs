@@ -134,7 +134,7 @@ macro_rules! impl_deserialize_for_op {
 
                         match tag.as_str() {
                             $(
-                                $tag => {
+                                $ty::KEYWORD => {
                                     let op: $ty = map.next_value()?;
                                     Ok(Box::new(op))
                                 }

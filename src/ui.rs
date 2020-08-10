@@ -73,7 +73,7 @@ macro_rules! msg {
     (@to_option [$inner:expr]) => { Some($inner) };
 
     // Still unused: 📸 🔔 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂 👋
-    (@icon none) => { " " };
+    (@icon -) => { " " };
     (@icon info) => { "ℹ️" };
     (@icon fire) => { "🔥" };
     (@icon run) => { "▶️" };

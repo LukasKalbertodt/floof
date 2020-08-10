@@ -23,7 +23,15 @@ pub struct Http {
     ws_addr: Option<Addr>,
 }
 
+impl Http {
+    pub const KEYWORD: &'static str = "http";
+}
+
 impl Operation for Http {
+    fn keyword(&self) -> &'static str {
+        Self::KEYWORD
+    }
+
     fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         Ok(Box::new(Finished(Outcome::Success)))
     }

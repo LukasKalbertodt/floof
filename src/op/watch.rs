@@ -20,7 +20,15 @@ pub struct Watch {
     // TODO: flag to enable polling?
 }
 
+impl Watch {
+    pub const KEYWORD: &'static str = "watch";
+}
+
 impl Operation for Watch {
+    fn keyword(&self) -> &'static str {
+        Self::KEYWORD
+    }
+
     fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         Ok(Box::new(Finished(Outcome::Success)))
     }
