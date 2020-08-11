@@ -117,8 +117,8 @@ impl Operation for Command {
         Self::KEYWORD
     }
 
-    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
-        msg!(run [&task.name]["command"] "running: {}", self.run);
+    fn start(&self, task: &Task, _ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
+        msg!(run [&task.name]["command"] "running: {[green]}", self.run);
 
         // Build `std::process::Command`.
         let mut command = std::process::Command::new(&self.run.program);
@@ -129,7 +129,7 @@ impl Operation for Command {
 
         // Run the command and get its status code
         match command.spawn() {
-            Ok(child) => Ok(Box::new(RunningCommand { child })),
+            Ok(child) => Ok(Box::new(RunningCommand { child, config: self })),
             Err(e) => {
                 let mut context = format!("failed to spawn `{}`", self.run);
                 if e.kind() == std::io::ErrorKind::NotFound {
@@ -144,26 +144,31 @@ impl Operation for Command {
     }
 }
 
-struct RunningCommand {
+struct RunningCommand<'a> {
     child: std::process::Child,
+    config: &'a Command,
 }
 
-fn exit_status_to_outcome(status: std::process::ExitStatus) -> Outcome {
-    if status.success() {
-        Outcome::Success
-    } else {
-        Outcome::Failure
+impl RunningCommand<'_> {
+    fn finish_with_status(&self, status: std::process::ExitStatus, task: &Task) -> Outcome {
+        if status.success() {
+            Outcome::Success
+        } else {
+            msg!(warn [&task.name]["command"] "{[green]} returned non-zero exit code", self.config.run);
+            Outcome::Failure
+        }
     }
 }
 
-impl RunningOperation for RunningCommand {
-    fn finish(&mut self) -> Result<Outcome> {
+
+impl RunningOperation for RunningCommand<'_> {
+    fn finish(&mut self, task: &Task, _ctx: &Context) -> Result<Outcome> {
         let status = self.child.wait().context("failed to wait for running process")?;
-        Ok(exit_status_to_outcome(status))
+        Ok(self.finish_with_status(status, task))
     }
-    fn try_finish(&mut self) -> Result<Option<Outcome>> {
+    fn try_finish(&mut self, task: &Task, _ctx: &Context) -> Result<Option<Outcome>> {
         let status = self.child.try_wait().context("failed to wait for running process")?;
-        Ok(status.map(exit_status_to_outcome))
+        Ok(status.map(|status| self.finish_with_status(status, task)))
     }
     fn cancel(&mut self) -> Result<()> {
         self.child.kill()?;

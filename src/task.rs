@@ -33,9 +33,19 @@ impl Task {
         verbose!(- [name] - "Starting task", self.name);
 
         for op in &self.operations {
-            op.run(self, ctx).with_context(|| {
-                format!("failed to run operation '{}' for task '{}'", op.keyword(), self.name)
+            let outcome = op.run(self, ctx).with_context(|| {
+                // TODO: nicer output of the operation
+                format!("failed to run operation for task '{}':\n{:#?}", self.name, op)
             })?;
+
+            if outcome.is_failure() {
+                verbose!(
+                    - [name] - "'{}' operation failed → stopping (no further operations of \
+                        this task are ran)",
+                    op.keyword(),
+                );
+                break;
+            }
         }
 
         Ok(())

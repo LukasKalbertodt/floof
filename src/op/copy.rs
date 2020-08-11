@@ -21,7 +21,7 @@ impl Operation for Copy {
         Self::KEYWORD
     }
 
-    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+    fn start(&self, _task: &Task, _ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         Ok(Box::new(Finished(Outcome::Success)))
     }
 }

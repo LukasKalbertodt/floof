@@ -75,6 +75,7 @@ macro_rules! msg {
     // Still unused: 📸 🔔 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂 👋
     (@icon -) => { " " };
     (@icon info) => { "ℹ️" };
+    (@icon warn) => { "⚠️" };
     (@icon fire) => { "🔥" };
     (@icon run) => { "▶️" };
     (@icon reload) => { "♻️" };
