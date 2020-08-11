@@ -2,7 +2,7 @@ use std::io::Write;
 use once_cell::sync::OnceCell;
 use termcolor::{Buffer, BufferWriter, ColorChoice};
 use crate::{
-    Args,
+    Args, Context,
     prelude::*,
 };
 
@@ -48,21 +48,22 @@ pub fn init(args: &Args) -> Result<()> {
 pub fn print_prefix(
     mut buf: &mut Buffer,
     icon: &str,
-    task: Option<&str>,
+    ctx: &Context,
     op: Option<&str>,
 ) -> Result<(), std::io::Error> {
-    bunt::write!(buf, "{[blue]} {}  ", crate::ui::PREFIX, icon)?;
+    bunt::write!(
+        buf,
+        "{[blue]} {}  {$black+intense}[{[blue+intense+bold]}]{/$}",
+        PREFIX,
+        icon,
+        ctx.frame_label()
+    )?;
 
-    if let Some(task) = task {
-        bunt::write!(buf, "{$black+intense}[{[blue+intense+bold]}]{/$}", task)?;
-    }
     if let Some(op) = op {
         bunt::write!(buf, "{$black+intense}[{[blue+intense]}]{/$}", op)?;
     }
 
-    if task.is_some() || op.is_some() {
-        write!(buf, " ")?;
-    }
+    write!(buf, " ")?;
 
     Ok(())
 }
@@ -82,14 +83,14 @@ macro_rules! msg {
     (@icon eye) => { "👁" };
     (@icon $other:tt) => { $other };
 
-    ($icon:tt $task:tt $op:tt $($t:tt)*) => {{
+    ($icon:tt [$task:expr] $op:tt $($t:tt)*) => {{
         let w = crate::ui::WRITER.get().expect("bug: ui not initialized yet");
         let mut buf = w.buffer();
         (|| -> Result<(), std::io::Error> {
             crate::ui::print_prefix(
                 &mut buf,
                 msg!(@icon $icon),
-                msg!(@to_option $task),
+                &$task,
                 msg!(@to_option $op),
             )?;
             bunt::writeln!(buf, $($t)*)?;

@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     }
 
     // Create the context that is given to various threads and other functions.
-    let context::ContextCreation { ctx, errors } = Context::new(config);
+    let ctx = Context::new(config);
 
     // Start default task.
     match args.cmd {
@@ -68,19 +68,6 @@ fn main() -> Result<()> {
             }
         }
     }
-
-
-    // // Drop the context to drop all `Sender`s within it.
-    // let ui = ctx.ui.clone();
-    // drop(ctx);
-
-    // // We collect errors on the main thread, exiting when the first one arrives.
-    // match errors.recv() {
-    //     // There are no thread running, so we can just quit.
-    //     Err(_) => ui.exiting_no_watcher(),
-    //     // A thread returned an error.
-    //     Ok(e) => return Err(e),
-    // }
 
     Ok(())
 }

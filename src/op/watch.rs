@@ -29,7 +29,7 @@ impl Operation for Watch {
         Self::KEYWORD
     }
 
-    fn start(&self, _task: &Task, _ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         Ok(Box::new(Finished(Outcome::Success)))
+    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
     }
 }

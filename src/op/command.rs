@@ -117,8 +117,8 @@ impl Operation for Command {
         Self::KEYWORD
     }
 
-    fn start(&self, task: &Task, _ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
-        msg!(run [&task.name]["command"] "running: {[green]}", self.run);
+    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
+        msg!(run [ctx]["command"] "running: {[green]}", self.run);
 
         // Build `std::process::Command`.
         let mut command = std::process::Command::new(&self.run.program);
@@ -150,11 +150,11 @@ struct RunningCommand<'a> {
 }
 
 impl RunningCommand<'_> {
-    fn finish_with_status(&self, status: std::process::ExitStatus, task: &Task) -> Outcome {
+    fn finish_with_status(&self, status: std::process::ExitStatus, ctx: &Context) -> Outcome {
         if status.success() {
             Outcome::Success
         } else {
-            msg!(warn [&task.name]["command"] "{[green]} returned non-zero exit code", self.config.run);
+            msg!(warn [ctx]["command"] "{[green]} returned non-zero exit code", self.config.run);
             Outcome::Failure
         }
     }
@@ -162,13 +162,13 @@ impl RunningCommand<'_> {
 
 
 impl RunningOperation for RunningCommand<'_> {
-    fn finish(&mut self, task: &Task, _ctx: &Context) -> Result<Outcome> {
+    fn finish(&mut self, ctx: &Context) -> Result<Outcome> {
         let status = self.child.wait().context("failed to wait for running process")?;
-        Ok(self.finish_with_status(status, task))
+        Ok(self.finish_with_status(status, ctx))
     }
-    fn try_finish(&mut self, task: &Task, _ctx: &Context) -> Result<Option<Outcome>> {
+    fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>> {
         let status = self.child.try_wait().context("failed to wait for running process")?;
-        Ok(status.map(|status| self.finish_with_status(status, task)))
+        Ok(status.map(|status| self.finish_with_status(status, ctx)))
     }
     fn cancel(&mut self) -> Result<()> {
         self.child.kill()?;

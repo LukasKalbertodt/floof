@@ -11,51 +11,86 @@ use crate::{
 };
 
 
-/// Contains central information and synchronization utilities that most parts
-/// of the program need access to.
-#[derive(Clone)]
-pub struct Context {
-    pub config: Arc<Config>,
-    errors: Sender<Error>,
+/// On frame of the "context stack".
+#[derive(Debug)]
+pub struct Frame {
+    // TODO: maybe make `Frame` an enum and "inline" `FrameKind`
+    parent: Option<Arc<Frame>>,
+    kind: FrameKind,
 }
 
-/// Helper struct for `Context::new`.
-pub struct ContextCreation {
-    pub ctx: Context,
-    pub errors: Receiver<Error>,
+impl Frame {
+    fn root() -> Self {
+        Self {
+            parent: None,
+            kind: FrameKind::Root,
+        }
+    }
+}
+
+/// The kind of context frame.
+#[derive(Debug)]
+pub enum FrameKind {
+    /// Exists only once and does not have a parent.
+    Root,
+    Task(String),
+    Operation(String),
+}
+
+/// Contains global information and information about the "execution context".
+/// The latter is mostly just a stack describing what tasks and operations lead
+/// to this current "execution".
+#[derive(Debug, Clone)]
+pub struct Context {
+    pub config: Arc<Config>,
+    pub frames: Arc<Frame>,
 }
 
 impl Context {
     /// Creates a new context.
-    pub fn new(config: Config) -> ContextCreation {
-        let (errors_tx, errors_rx) = mpsc::channel();
-
-        ContextCreation {
-            ctx: Self {
-                config: Arc::new(config),
-                errors: errors_tx,
-            },
-            errors: errors_rx,
+    pub fn new(config: Config) -> Self {
+        Self {
+            config: Arc::new(config),
+            frames: Arc::new(Frame::root()),
         }
     }
 
-    /// Send the given error to the main thread. The main thread will then print
-    /// the error and terminate, terminating all other threads with as well.
-    pub fn report_error(&self, e: Error) {
-        // We ignore the result here. It is only `Err` if the channel has hung
-        // up, which means the main thread has ended. But it isn't possible that
-        // the main thread ended but the child threads did not.
-        let _ = self.errors.send(e);
+    /// Returns an iterator over all frames of the execution context.
+    pub fn frames(&self) -> impl Iterator<Item = &Frame> {
+        std::iter::successors(Some(&*self.frames), |frame| frame.parent.as_ref().map(|p| &**p))
     }
 
-    /// Spawns a thread that executes the given function `f`. If the function
-    /// produces an error, `self.report_error` is called with said error.
-    pub fn spawn_thread(&self, f: impl FnOnce(&Self) -> Result<()> + Send + 'static) {
-        let ctx = self.clone();
-        thread::spawn(move || {
-            if let Err(e) = f(&ctx) {
-                ctx.report_error(e);
-            }
+    /// Creates a new context that has the given frame added.
+    pub fn fork(&self, kind: FrameKind) -> Self {
+        let frame = Arc::new(Frame {
+            parent: Some(self.frames.clone()),
+            kind,
         });
+
+        Self {
+            config: self.config.clone(),
+            frames: frame,
+        }
+    }
+
+    /// Returns the label used for terminal messages. Usually just the name of
+    /// the closest `task`.
+    pub fn frame_label(&self) -> String {
+        match &self.frames.kind {
+            FrameKind::Root => "".into(),
+            FrameKind::Task(name) => name.clone(),
+            FrameKind::Operation(name) => {
+                let mut out = name.clone();
+                for frame in self.frames().skip(1) {
+                    match &frame.kind {
+                        FrameKind::Root => panic!("bug: operation frame is child of root frame"),
+                        FrameKind::Task(name) => return format!("{}.{}", name, out),
+                        FrameKind::Operation(name) => out = format!("{}.{}", name, out),
+                    }
+                }
+
+                panic!("bug: operation frame is root frame");
+            }
+        }
     }
 }

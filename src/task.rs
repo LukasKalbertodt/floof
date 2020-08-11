@@ -8,6 +8,7 @@
 use crate::{
     Operations,
     prelude::*,
+    context::FrameKind,
 };
 
 use crate::Operation;
@@ -29,24 +30,26 @@ impl Task {
     }
 
     pub fn run(&self, ctx: &Context) -> Result<()> {
-        let name = &self.name;
-        verbose!(- [name] - "Starting task", self.name);
+        let ctx = ctx.fork(FrameKind::Task(self.name.clone()));
+        verbose!(- [ctx] - "Starting task");
 
         for op in &self.operations {
-            let outcome = op.run(self, ctx).with_context(|| {
+            let outcome = op.run(&ctx).with_context(|| {
                 // TODO: nicer output of the operation
                 format!("failed to run operation for task '{}':\n{:#?}", self.name, op)
             })?;
 
             if outcome.is_failure() {
                 verbose!(
-                    - [name] - "'{}' operation failed → stopping (no further operations of \
+                    - [ctx] - "'{}' operation failed → stopping (no further operations of \
                         this task are ran)",
                     op.keyword(),
                 );
                 break;
             }
         }
+
+        verbose!(- [ctx] - "Finished running all operations of task", self.name);
 
         Ok(())
     }

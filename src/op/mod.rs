@@ -1,7 +1,7 @@
 use std::fmt;
 use anyhow::Result;
 use crate::{
-    Context, Task,
+    Context,
     prelude::*,
 };
 
@@ -30,11 +30,11 @@ pub trait Operation: fmt::Debug + 'static + Send + Sync {
     fn keyword(&self) -> &'static str;
 
     /// Starts the operation.
-    fn start(&self, task: &Task, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>>;
+    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>>;
 
     /// Starts the operation and immediately runs it to completion.
-    fn run(&self, task: &Task, ctx: &Context) -> Result<Outcome> {
-        self.start(task, ctx)?.finish(task, ctx)
+    fn run(&self, ctx: &Context) -> Result<Outcome> {
+        self.start(ctx)?.finish(ctx)
     }
 
     /// Validates the operation's configuration. The implementing type can
@@ -48,11 +48,11 @@ pub trait Operation: fmt::Debug + 'static + Send + Sync {
 /// An operation that has been started and that is potentially still running.
 pub trait RunningOperation {
     /// Blocks and runs the operation to completion.
-    fn finish(&mut self, task: &Task, ctx: &Context) -> Result<Outcome>;
+    fn finish(&mut self, ctx: &Context) -> Result<Outcome>;
 
     /// Checks if the operation is already finished and returns its outcome.
     /// Otherwise, returns `None` but does not block!
-    fn try_finish(&mut self, task: &Task, ctx: &Context) -> Result<Option<Outcome>>;
+    fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>>;
 
     /// Cancels the operation.
     fn cancel(&mut self) -> Result<()>;
@@ -76,10 +76,10 @@ impl Outcome {
 /// running and already finish inside `start`.
 struct Finished(Outcome);
 impl RunningOperation for Finished {
-    fn finish(&mut self, _task: &Task, _ctx: &Context) -> Result<Outcome> {
+    fn finish(&mut self, _ctx: &Context) -> Result<Outcome> {
         Ok(self.0)
     }
-    fn try_finish(&mut self, _task: &Task, _ctx: &Context) -> Result<Option<Outcome>> {
+    fn try_finish(&mut self, _ctx: &Context) -> Result<Option<Outcome>> {
         Ok(Some(self.0))
     }
     fn cancel(&mut self) -> Result<()> {
