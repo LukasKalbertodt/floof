@@ -60,7 +60,7 @@ pub fn print_prefix(
 ) -> Result<(), std::io::Error> {
     bunt::write!(
         buf,
-        "{[blue]} {}  {$black+intense}[{[blue+intense+bold]}]{/$}",
+        "{[blue]} {} {$black+intense}[{[blue+intense+bold]}]{/$}",
         PREFIX,
         icon,
         ctx.frame_label()
@@ -81,13 +81,15 @@ macro_rules! msg {
     (@to_option [$inner:expr]) => { Some($inner) };
 
     // Still unused: 📸 🔔 💧 ⚡ ❄ 🌊 🌈 🌀 ⏳ ⌛ 💡 👂 👋
-    (@icon -) => { " " };
-    (@icon info) => { "ℹ️" };
-    (@icon warn) => { "⚠️" };
+    (@icon -) => { "  " };
+    (@icon info) => { "ℹ️ " };
+    (@icon warn) => { "⚠️ " };
     (@icon fire) => { "🔥" };
-    (@icon run) => { "▶️" };
-    (@icon reload) => { "♻️" };
-    (@icon eye) => { "👁" };
+    (@icon run) => { "▶️ " };
+    (@icon reload) => { "♻️ " };
+    (@icon eye) => { "👁 " };
+    (@icon stop) => { "🛑" };
+    (@icon waiting) => { "⏳" };
     (@icon $other:tt) => { $other };
 
     ($icon:tt [$task:expr] $op:tt $($t:tt)*) => {{
