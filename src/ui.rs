@@ -26,6 +26,13 @@ impl Verbosity {
     }
 }
 
+pub fn if_verbose(f: impl FnOnce()) {
+    let level = *crate::ui::VERBOSITY.get().expect("bug: ui not initialized yet");
+    if level == crate::ui::Verbosity::Verbose || level == crate::ui::Verbosity::Trace {
+        f()
+    }
+}
+
 // We store these two global so that easy macros can be used. We don't really
 // have any downside from making them global.
 pub static WRITER: OnceCell<BufferWriter> = OnceCell::new();
@@ -104,12 +111,9 @@ macro_rules! msg {
 /// Emit a verbose message that is only printed if the verbosity level is
 /// `Verbose` or `Trace`.
 macro_rules! verbose {
-    ($($t:tt)*) => {{
-        let level = *crate::ui::VERBOSITY.get().expect("bug: ui not initialized yet");
-        if level == crate::ui::Verbosity::Verbose || level == crate::ui::Verbosity::Trace {
-            msg!($($t)*);
-        }
-    }};
+    ($($t:tt)*) => {
+        crate::ui::if_verbose(|| msg!($($t)*));
+    };
 }
 
 
