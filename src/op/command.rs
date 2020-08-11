@@ -117,6 +117,10 @@ impl Operation for Command {
         Self::KEYWORD
     }
 
+    fn dyn_clone(&self) -> Box<dyn Operation> {
+        Box::new(self.clone())
+    }
+
     fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
         msg!(run [ctx]["command"] "running: {[green]}", self.run);
 

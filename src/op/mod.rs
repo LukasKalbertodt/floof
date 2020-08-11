@@ -43,6 +43,14 @@ pub trait Operation: fmt::Debug + 'static + Send + Sync {
     fn validate(&self) -> Result<()> {
         Ok(())
     }
+
+    fn dyn_clone(&self) -> Box<dyn Operation>;
+}
+
+impl Clone for Box<dyn Operation> {
+    fn clone(&self) -> Self {
+        self.dyn_clone()
+    }
 }
 
 /// An operation that has been started and that is potentially still running.

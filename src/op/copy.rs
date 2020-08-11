@@ -21,6 +21,10 @@ impl Operation for Copy {
         Self::KEYWORD
     }
 
+    fn dyn_clone(&self) -> Box<dyn Operation> {
+        Box::new(self.clone())
+    }
+
     fn start(&self, _ctx: &Context) -> Result<Box<dyn RunningOperation>> {
         Ok(Box::new(Finished(Outcome::Success)))
     }

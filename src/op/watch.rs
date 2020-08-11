@@ -30,6 +30,10 @@ impl Operation for Watch {
     }
 
         Ok(Box::new(Finished(Outcome::Success)))
+    fn dyn_clone(&self) -> Box<dyn Operation> {
+        Box::new(self.clone())
+    }
+
     fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
     }
 }
