@@ -26,6 +26,6 @@ impl Operation for Copy {
     }
 
     fn start(&self, _ctx: &Context) -> Result<Box<dyn RunningOperation>> {
-        Ok(Box::new(Finished(Outcome::Success)))
+        todo!()
     }
 }

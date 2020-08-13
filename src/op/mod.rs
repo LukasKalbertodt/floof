@@ -18,7 +18,7 @@ pub use self::{
     command::Command,
     http::Http,
     run_task::RunTask,
-    watch::Watch,
+    watch::{OnChange, Watch},
 };
 
 
@@ -106,6 +106,7 @@ impl RunningOperation for Finished {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParentKind<'a> {
     /// Operation of a task with the given name.
     Task(&'a str),

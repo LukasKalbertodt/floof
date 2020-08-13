@@ -1,3 +1,6 @@
+//! Watching directories and trigger operations whenever something changed.
+//! Defines the `watch` and `on-change` operations.
+
 use std::{
     time::{Duration, Instant},
     path::Path,
@@ -12,7 +15,7 @@ use crate::{
     prelude::*,
     context::FrameKind,
 };
-use super::{Finished, Operation, Operations, Outcome, RunningOperation};
+use super::{Finished, Operation, Operations, Outcome, RunningOperation, ParentKind};
 
 
 /// We unfortunately can't "listen" on a channel and a child process at the same
@@ -24,6 +27,45 @@ const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);
 /// The duration for which we debounce watch events.
 const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 
+/// Operation `on-change`. Wraps another operation and only executes it if the
+/// operation was triggered by a file change in the parent `watch` operation. If
+/// not used as a direct child of `watch`, validation will error.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnChange(Box<dyn Operation>);
+
+impl OnChange {
+    pub const KEYWORD: &'static str = "on-change";
+}
+
+impl Operation for OnChange {
+    fn keyword(&self) -> &'static str {
+        Self::KEYWORD
+    }
+
+    fn dyn_clone(&self) -> Box<dyn Operation> {
+        Box::new(self.clone())
+    }
+
+    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
+        if ctx.top_frame.get_var::<TriggeredByChange>().expect("bug: not in watch context").0 {
+            self.0.start(ctx)
+        } else {
+            Ok(Box::new(Finished(Outcome::Success)))
+        }
+    }
+
+    fn validate(&self, parent: ParentKind<'_>, _config: &Config) -> Result<()> {
+        if parent != ParentKind::Operation("watch") {
+            bail!("`on-change` operation can only be used in the `run` \
+                array of a `watch` operation");
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TriggeredByChange(bool);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -162,7 +204,8 @@ fn executor(
 
     // Runs all given operations and returns the new state, or `None` if the
     // channel has disconnected.
-    let run_operations = |_is_on_change: bool| -> Result<Option<State>> {
+    let run_operations = |is_on_change: bool| -> Result<Option<State>> {
+        op_ctx.top_frame.insert_var(TriggeredByChange(is_on_change));
         for op in &config.run {
             let mut running = op.start(&op_ctx)?;
 
