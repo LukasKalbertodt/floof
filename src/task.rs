@@ -6,12 +6,11 @@
 // use notify::{Watcher, RecursiveMode};
 
 use crate::{
-    Operations,
+    Operation, Operations,
     prelude::*,
+    op::Outcome,
     context::FrameKind,
 };
-
-use crate::Operation;
 
 
 #[derive(Debug)]
@@ -29,7 +28,7 @@ impl Task {
         Ok(())
     }
 
-    pub fn run(&self, ctx: &Context) -> Result<()> {
+    pub fn run(&self, ctx: &Context) -> Result<Outcome> {
         let ctx = ctx.fork_task(&self.name);
         verbose!(- [ctx] - "Starting task");
 
@@ -45,12 +44,12 @@ impl Task {
                         this task are ran)",
                     op.keyword(),
                 );
-                break;
+                return Ok(Outcome::Failure)
             }
         }
 
         verbose!(- [ctx] - "Finished running all operations of task", self.name);
 
-        Ok(())
+        Ok(Outcome::Success)
     }
 }

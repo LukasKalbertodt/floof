@@ -10,7 +10,7 @@ use serde::{Deserializer, Deserialize, de::{self, MapAccess, SeqAccess, Visitor}
 use crate::{
     Operation, Task,
     prelude::*,
-    op::{Command, Copy, Http, Operations, SetWorkDir, Watch},
+    op::{Command, Copy, Http, Operations, RunTask, SetWorkDir, Watch},
 };
 
 
@@ -154,4 +154,4 @@ macro_rules! impl_deserialize_for_op {
     };
 }
 
-impl_deserialize_for_op![Command, Copy, Http, SetWorkDir, Watch];
+impl_deserialize_for_op![Command, Copy, Http, RunTask, SetWorkDir, Watch];

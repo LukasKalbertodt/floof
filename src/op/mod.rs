@@ -9,6 +9,7 @@ mod workdir;
 mod copy;
 mod command;
 mod http;
+mod run_task;
 mod watch;
 
 pub use self::{
@@ -16,6 +17,7 @@ pub use self::{
     copy::Copy,
     command::Command,
     http::Http,
+    run_task::RunTask,
     watch::Watch,
 };
 
@@ -79,6 +81,13 @@ pub enum Outcome {
 impl Outcome {
     pub fn is_failure(&self) -> bool {
         matches!(self, Self::Failure)
+    }
+
+    pub fn to_exit_code(&self) -> i32 {
+        match self {
+            Self::Success => 0,
+            Self::Failure => 1,
+        }
     }
 }
 

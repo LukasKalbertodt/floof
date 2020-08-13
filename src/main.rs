@@ -45,29 +45,29 @@ fn main() -> Result<()> {
     let ctx = Context::new(config, args.config.as_deref())?;
 
     // Start default task.
-    match args.cmd {
+    let exit_code = match args.cmd {
         None => {
             match ctx.config.tasks.get("default") {
-                Some(task) => task.run(&ctx)?,
+                Some(task) => task.run(&ctx)?.to_exit_code(),
                 None => {
                     eprintln!("No default task defined!");
                     eprintln!("Either define the task 'default' in the configuration or \
                         run `watchboi run <task>` to run a specific task");
-                    std::process::exit(1);
+                    1
                 }
             }
         }
         Some(args::Command::Run { task }) => {
             // Make sure that all task names exist before starting anything.
             match ctx.config.tasks.get(&task) {
-                Some(task) => task.run(&ctx)?,
+                Some(task) => task.run(&ctx)?.to_exit_code(),
                 None => {
                     eprintln!("Task '{}' not defined in configuration!", task);
-                    std::process::exit(1);
+                    1
                 }
             }
         }
-    }
+    };
 
-    Ok(())
+    std::process::exit(exit_code);
 }
