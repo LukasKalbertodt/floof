@@ -1,13 +1,13 @@
 use std::{
     fmt,
-    convert::{TryFrom, TryInto},
+    convert::TryFrom,
 };
 use serde::Deserialize;
 use crate::{
-    Context, Task,
+    Context,
     prelude::*,
 };
-use super::{Finished, Operation, Operations, Outcome, RunningOperation};
+use super::{Operation, Outcome, RunningOperation};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Command {

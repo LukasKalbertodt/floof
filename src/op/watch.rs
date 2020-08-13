@@ -9,12 +9,7 @@ use std::{
 };
 use notify::{Watcher, RecursiveMode};
 use serde::Deserialize;
-use crate::{
-    Context,
-    ui,
-    prelude::*,
-    context::FrameKind,
-};
+use crate::prelude::*;
 use super::{Finished, Operation, Operations, Outcome, RunningOperation, ParentKind};
 
 
@@ -142,12 +137,12 @@ struct Event {
     time: Instant,
 }
 
-struct Running<'a> {
+struct Running {
     watcher: Option<notify::RecommendedWatcher>,
     executor: Option<JoinHandle<Result<()>>>,
 }
 
-impl RunningOperation for Running<'_> {
+impl RunningOperation for Running {
     fn finish(&mut self, _ctx: &Context) -> Result<Outcome> {
         // This will never return as there is no "finish condition" for this
         // operation.

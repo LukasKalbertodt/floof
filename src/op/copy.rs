@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use crate::{
-    Context, Task,
+    Context,
     prelude::*,
 };
-use super::{Finished, Operation, Operations, Outcome, RunningOperation};
+use super::{Operation, RunningOperation};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

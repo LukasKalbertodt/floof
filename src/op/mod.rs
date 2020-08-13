@@ -1,9 +1,6 @@
 use std::fmt;
 use anyhow::Result;
-use crate::{
-    Context, Config,
-    prelude::*,
-};
+use crate::prelude::*;
 
 mod workdir;
 mod copy;

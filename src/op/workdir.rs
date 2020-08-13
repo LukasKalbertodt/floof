@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use serde::Deserialize;
 use crate::{
-    Context, Task,
+    Context,
     prelude::*,
 };
-use super::{Finished, Operation, Operations, Outcome, RunningOperation};
+use super::{Finished, Operation, Outcome, RunningOperation};
 
 
 #[derive(Debug, Clone)]

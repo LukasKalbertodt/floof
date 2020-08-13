@@ -1,10 +1,7 @@
-#![allow(unused_imports)] // TODO
-
 use structopt::StructOpt;
 use crate::{
     prelude::*,
     cfg::Config,
-    // context::{Context, ContextCreation},
 };
 
 #[macro_use]
@@ -16,8 +13,6 @@ mod cfg;
 mod op;
 mod prelude;
 mod context;
-// mod http;
-// mod step;
 
 // We "reexport" some symbols here to make importing them (in other modules)
 // easier and to avoid `task::Task` paths.

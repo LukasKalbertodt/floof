@@ -2,9 +2,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, RwLock,
-        mpsc::{self, Sender, Receiver},
     },
-    thread,
 };
 use type_map::concurrent::TypeMap;
 use crate::{

@@ -1,6 +1,6 @@
 use std::io::Write;
 use once_cell::sync::OnceCell;
-use termcolor::{Buffer, BufferWriter, ColorChoice};
+use termcolor::{Buffer, BufferWriter};
 use crate::{
     Args, Context,
     prelude::*,

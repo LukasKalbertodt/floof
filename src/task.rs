@@ -6,10 +6,9 @@
 // use notify::{Watcher, RecursiveMode};
 
 use crate::{
-    Config, Operation, Operations,
+    Config, Operations,
     prelude::*,
     op::{self, Outcome},
-    context::FrameKind,
 };
 
 

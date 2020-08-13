@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use crate::{
-    Config, Task,
+    Config,
     prelude::*,
 };
-use super::{Finished, Operation, Operations, Outcome, RunningOperation, ParentKind};
+use super::{Finished, Operation, RunningOperation, ParentKind};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunTask(String);
