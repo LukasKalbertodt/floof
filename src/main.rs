@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     }
 
     // Create the context that is given to various threads and other functions.
-    let ctx = Context::new(config);
+    let ctx = Context::new(config, args.config.as_deref())?;
 
     // Start default task.
     match args.cmd {

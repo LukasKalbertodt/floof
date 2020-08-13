@@ -127,9 +127,12 @@ impl Operation for Command {
         // Build `std::process::Command`.
         let mut command = std::process::Command::new(&self.run.program);
         command.args(&self.run.args);
-        if let Some(workdir) = &self.workdir {
-            command.current_dir(workdir);
-        }
+
+        let workdir = match &self.workdir {
+            Some(workdir) => ctx.join_workdir(&workdir),
+            None => ctx.workdir(),
+        };
+        command.current_dir(workdir);
 
         // Run the command and get its status code
         match command.spawn() {

@@ -5,12 +5,14 @@ use crate::{
     prelude::*,
 };
 
+mod workdir;
 mod copy;
 mod command;
 mod http;
 mod watch;
 
 pub use self::{
+    workdir::{WorkDir, SetWorkDir},
     copy::Copy,
     command::Command,
     http::Http,

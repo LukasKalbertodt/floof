@@ -1,6 +1,7 @@
 use std::{
+    path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, RwLock,
         mpsc::{self, Sender, Receiver},
     },
     thread,
@@ -9,6 +10,7 @@ use type_map::concurrent::TypeMap;
 use crate::{
     prelude::*,
     cfg::Config,
+    op::WorkDir,
 };
 
 
@@ -18,15 +20,32 @@ pub struct Frame {
     pub kind: FrameKind,
 
     /// Arbitrary data that can be set by operations.
-    pub vars: TypeMap,
+    vars: RwLock<TypeMap>,
 }
 
 impl Frame {
-    fn root() -> Self {
+    fn new(kind: FrameKind) -> Self {
         Self {
-            kind: FrameKind::Root,
-            vars: TypeMap::new(),
+            kind,
+            vars: RwLock::new(TypeMap::new()),
         }
+    }
+
+    fn root() -> Self {
+        Self::new(FrameKind::Root)
+    }
+
+    pub fn insert_var<T: Send + Sync + 'static>(&self, val: T) -> Option<T> {
+        self.vars.write()
+            .expect("var type map poisoned :(")
+            .insert(val)
+    }
+
+    pub fn get_var<T: Clone + 'static>(&self) -> Option<T> {
+        self.vars.read()
+            .expect("var type map poisoned :(")
+            .get()
+            .cloned()
     }
 }
 
@@ -55,11 +74,20 @@ pub struct Context {
 
 impl Context {
     /// Creates a new context.
-    pub fn new(config: Config) -> Self {
-        Self {
-            config: Arc::new(config),
-            top_frame: Arc::new(Frame::root()),
+    pub fn new(config: Config, config_file: Option<&Path>) -> Result<Self> {
+        let mut path = config_file.unwrap_or(Path::new(cfg::DEFAULT_FILENAME)).to_path_buf();
+        if path.is_relative() {
+            path = std::env::current_dir()?.join(path);
         }
+        let root_path = path.parent().expect("path to config file has not final component");
+
+        let root_frame = Frame::root();
+        root_frame.insert_var(WorkDir(root_path.into()));
+
+        Ok(Self {
+            config: Arc::new(config),
+            top_frame: Arc::new(root_frame),
+        })
     }
 
     /// Returns an iterator over all frames of the execution context.
@@ -71,6 +99,39 @@ impl Context {
                 FrameKind::Operation { parent, .. } => Some(&**parent),
             }
         })
+    }
+
+    pub fn root_frame(&self) -> &Frame {
+        self.frames().last().unwrap()
+    }
+
+    pub fn get_closest_var<T: Clone + 'static>(&self) -> Option<T> {
+        self.frames().find_map(|f| f.get_var())
+    }
+
+    pub fn workdir(&self) -> PathBuf {
+        self.get_closest_var::<WorkDir>().expect("bug: no root workdir").0
+    }
+
+    /// Joins the `new_path` with the current workdir context. Three possible
+    /// cases:
+    /// - `new_path` is absolute: `new_path` is returned
+    /// - `new_path` starts with `./`: the closest `WorkDir` variable joined
+    ///   with `new_path` is returned.
+    /// - Else: the path of the config file (minus file name) joined with
+    ///   `new_path` is returned.
+    pub fn join_workdir(&self, new_path: impl AsRef<Path>) -> PathBuf {
+        let new_path = new_path.as_ref();
+        match () {
+            () if new_path.is_absolute() => new_path.to_path_buf(),
+            () if new_path.starts_with(".") => {
+                self.workdir().join(new_path.strip_prefix(".").unwrap())
+            }
+            _ => {
+                let base = self.root_frame().get_var::<WorkDir>().expect("bug: no root workdir");
+                base.0.join(new_path)
+            }
+        }
     }
 
     /// Creates a new context that has a `Task` frame with the given name added
@@ -92,14 +153,9 @@ impl Context {
     }
 
     fn fork(&self, kind: FrameKind) -> Self {
-        let frame = Frame {
-            kind,
-            vars: TypeMap::new(),
-        };
-
         Self {
             config: self.config.clone(),
-            top_frame: Arc::new(frame),
+            top_frame: Arc::new(Frame::new(kind)),
         }
     }
 

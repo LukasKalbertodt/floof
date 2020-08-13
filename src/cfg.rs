@@ -10,7 +10,7 @@ use serde::{Deserializer, Deserialize, de::{self, MapAccess, SeqAccess, Visitor}
 use crate::{
     Operation, Task,
     prelude::*,
-    op::{Command, Copy, Http, Operations, Watch},
+    op::{Command, Copy, Http, Operations, SetWorkDir, Watch},
 };
 
 
@@ -90,7 +90,7 @@ impl Config {
 // Helper macro to avoid code duplication. Implements `Deserialize` for
 // `Box<dyn Operation>`.
 macro_rules! impl_deserialize_for_op {
-    ($($tag:literal => $ty:ident ,)*) => {
+    ($($ty:ident),* $(,)?) => {
         impl<'de> Deserialize<'de> for Box<dyn Operation> {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
@@ -139,7 +139,7 @@ macro_rules! impl_deserialize_for_op {
                                     Ok(Box::new(op))
                                 }
                             )*
-                            other => Err(de::Error::unknown_variant(other, &[$($tag),+])),
+                            other => Err(de::Error::unknown_variant(other, &[$($ty::KEYWORD),+])),
                         }
                     }
                 }
@@ -154,9 +154,4 @@ macro_rules! impl_deserialize_for_op {
     };
 }
 
-impl_deserialize_for_op![
-    "command" => Command,
-    "copy" => Copy,
-    "http" => Http,
-    "watch" => Watch,
-];
+impl_deserialize_for_op![Command, Copy, Http, SetWorkDir, Watch];
