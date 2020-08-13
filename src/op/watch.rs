@@ -132,7 +132,6 @@ impl Operation for Watch {
         let executor = thread::spawn(move || executor(&ctx, config, event_rx));
 
         Ok(Box::new(Running {
-            config: self,
             watcher: Some(watcher),
             executor: Some(executor),
         }))
@@ -144,7 +143,6 @@ struct Event {
 }
 
 struct Running<'a> {
-    config: &'a Watch,
     watcher: Option<notify::RecommendedWatcher>,
     executor: Option<JoinHandle<Result<()>>>,
 }
@@ -163,7 +161,7 @@ impl RunningOperation for Running<'_> {
     fn cancel(&mut self) -> Result<()> {
         // By dropping the watcher, the watch thread stop due to disconnected
         // channel, leading the executor to stop because of that too.
-        self.executor.take();
+        self.watcher.take();
         self.executor.take().unwrap()
             .join().expect("executor thread panicked")
     }
