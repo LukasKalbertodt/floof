@@ -52,13 +52,12 @@ impl Operation for Watch {
         let (raw_event_tx, raw_event_rx) = mpsc::channel();
         let mut watcher = notify::raw_watcher(raw_event_tx)?;
 
+        let base = ctx.workdir();
         for path in &self.paths {
-            // let path = match &task.base {
-            //     Some(base) => Path::new(base).join(path),
-            //     None => Path::new(path).into(),
-            // };
-            // TODO: base path
-            let path = Path::new(path);
+            let mut path = Path::new(path).to_path_buf();
+            if path.is_relative() {
+                path = base.join(path);
+            }
 
             if !path.exists() {
                 bail!("path '{}' does not exist", path.display());
@@ -151,7 +150,7 @@ fn executor(
         RunOnChange,
     }
 
-    let ctx = ctx.fork_op("watch");
+    let op_ctx = ctx.fork_op("watch");
     let debounce_duration = config.debounce
         .map(Duration::from_millis)
         .unwrap_or(DEFAULT_DEBOUNCE_DURATION);
@@ -165,7 +164,7 @@ fn executor(
     // channel has disconnected.
     let run_operations = |_is_on_change: bool| -> Result<Option<State>> {
         for op in &config.run {
-            let mut running = op.start(&ctx)?;
+            let mut running = op.start(&op_ctx)?;
 
             // We have a busy loop here: We regularly check if new events
             // arrived, in which case we will cancel the operation and enter the
@@ -183,7 +182,7 @@ fn executor(
                         return Ok(Some(State::Debouncing(event.time)))
                     }
                     Err(RecvTimeoutError::Timeout) => {
-                        if running.try_finish(&ctx)?.is_some() {
+                        if running.try_finish(&op_ctx)?.is_some() {
                             break;
                         }
                     }
@@ -201,7 +200,7 @@ fn executor(
     loop {
         match state {
             State::Initial => {
-                msg!(- [ctx]["watch"] "executing operations on startup...");
+                msg!(- [ctx]["watch"] "executing operations once on startup...");
                 state = match run_operations(false)? {
                     Some(new_state) => new_state,
                     None => on_disconnect!(),
