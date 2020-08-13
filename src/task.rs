@@ -6,9 +6,9 @@
 // use notify::{Watcher, RecursiveMode};
 
 use crate::{
-    Operation, Operations,
+    Config, Operation, Operations,
     prelude::*,
-    op::Outcome,
+    op::{self, Outcome},
     context::FrameKind,
 };
 
@@ -20,9 +20,10 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, config: &Config) -> Result<()> {
         for op in &self.operations {
-            op.validate()?;
+            op.validate(op::ParentKind::Task(&self.name), config)
+                .context(format!("invalid configuration for operation '{}'", op.keyword()))?;
         }
 
         Ok(())

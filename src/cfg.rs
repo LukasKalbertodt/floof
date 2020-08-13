@@ -79,7 +79,8 @@ impl Config {
 
     fn validate(&self) -> Result<()> {
         for task in self.tasks.values() {
-            task.validate().context(format!("invalid configuration for task '{}'", task.name))?;
+            task.validate(self)
+                .context(format!("invalid configuration for task '{}'", task.name))?;
         }
 
         Ok(())

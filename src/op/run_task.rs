@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use crate::{
-    Context, Task,
+    Config, Task,
     prelude::*,
 };
-use super::{Finished, Operation, Operations, Outcome, RunningOperation};
+use super::{Finished, Operation, Operations, Outcome, RunningOperation, ParentKind};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunTask(String);
@@ -31,5 +31,13 @@ impl Operation for RunTask {
         Ok(Box::new(Finished(outcome)))
     }
 
-    // TODO: validation
+    fn validate(&self, _parent: ParentKind<'_>, config: &Config) -> Result<()> {
+        // TODO: maybe disallow recursion?
+
+        if !config.tasks.contains_key(&self.0) {
+            bail!("task '{}' does not exist", self.0);
+        }
+
+        Ok(())
+    }
 }

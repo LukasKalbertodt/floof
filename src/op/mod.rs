@@ -1,7 +1,7 @@
 use std::fmt;
 use anyhow::Result;
 use crate::{
-    Context,
+    Context, Config,
     prelude::*,
 };
 
@@ -44,7 +44,7 @@ pub trait Operation: fmt::Debug + 'static + Send + Sync {
     /// Validates the operation's configuration. The implementing type can
     /// return an error here to indicate that the configuration has some logic
     /// errors. This is called after parsing the configuration file.
-    fn validate(&self) -> Result<()> {
+    fn validate(&self, _parent: ParentKind<'_>, _config: &Config) -> Result<()> {
         Ok(())
     }
 
@@ -104,4 +104,11 @@ impl RunningOperation for Finished {
     fn cancel(&mut self) -> Result<()> {
         panic!("bug: called cancel but step is already finished")
     }
+}
+
+pub enum ParentKind<'a> {
+    /// Operation of a task with the given name.
+    Task(&'a str),
+    /// Suboperation of another operation with the given keyword.
+    Operation(&'a str),
 }
