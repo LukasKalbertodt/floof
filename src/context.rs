@@ -5,6 +5,7 @@ use std::{
     },
     thread,
 };
+use type_map::concurrent::TypeMap;
 use crate::{
     prelude::*,
     cfg::Config,
@@ -14,16 +15,17 @@ use crate::{
 /// On frame of the "context stack".
 #[derive(Debug)]
 pub struct Frame {
-    // TODO: maybe make `Frame` an enum and "inline" `FrameKind`
-    parent: Option<Arc<Frame>>,
-    kind: FrameKind,
+    pub kind: FrameKind,
+
+    /// Arbitrary data that can be set by operations.
+    pub vars: TypeMap,
 }
 
 impl Frame {
     fn root() -> Self {
         Self {
-            parent: None,
             kind: FrameKind::Root,
+            vars: TypeMap::new(),
         }
     }
 }
@@ -31,10 +33,15 @@ impl Frame {
 /// The kind of context frame.
 #[derive(Debug)]
 pub enum FrameKind {
-    /// Exists only once and does not have a parent.
     Root,
-    Task(String),
-    Operation(String),
+    Task {
+        name: String,
+        parent: Arc<Frame>,
+    },
+    Operation {
+        name: String,
+        parent: Arc<Frame>,
+    },
 }
 
 /// Contains global information and information about the "execution context".
@@ -43,7 +50,7 @@ pub enum FrameKind {
 #[derive(Debug, Clone)]
 pub struct Context {
     pub config: Arc<Config>,
-    pub frames: Arc<Frame>,
+    pub top_frame: Arc<Frame>,
 }
 
 impl Context {
@@ -51,41 +58,64 @@ impl Context {
     pub fn new(config: Config) -> Self {
         Self {
             config: Arc::new(config),
-            frames: Arc::new(Frame::root()),
+            top_frame: Arc::new(Frame::root()),
         }
     }
 
     /// Returns an iterator over all frames of the execution context.
     pub fn frames(&self) -> impl Iterator<Item = &Frame> {
-        std::iter::successors(Some(&*self.frames), |frame| frame.parent.as_ref().map(|p| &**p))
+        std::iter::successors(Some(&*self.top_frame), |frame| {
+            match &frame.kind {
+                FrameKind::Root => None,
+                FrameKind::Task { parent, .. } => Some(&**parent),
+                FrameKind::Operation { parent, .. } => Some(&**parent),
+            }
+        })
     }
 
-    /// Creates a new context that has the given frame added.
-    pub fn fork(&self, kind: FrameKind) -> Self {
-        let frame = Arc::new(Frame {
-            parent: Some(self.frames.clone()),
+    /// Creates a new context that has a `Task` frame with the given name added
+    /// on top.
+    pub fn fork_task(&self, name: impl Into<String>) -> Self {
+        self.fork(FrameKind::Task {
+            name: name.into(),
+            parent: self.top_frame.clone(),
+        })
+    }
+
+    /// Creates a new context that has a `Operation` frame with the given name
+    /// added on top.
+    pub fn fork_op(&self, name: impl Into<String>) -> Self {
+        self.fork(FrameKind::Operation {
+            name: name.into(),
+            parent: self.top_frame.clone(),
+        })
+    }
+
+    fn fork(&self, kind: FrameKind) -> Self {
+        let frame = Frame {
             kind,
-        });
+            vars: TypeMap::new(),
+        };
 
         Self {
             config: self.config.clone(),
-            frames: frame,
+            top_frame: Arc::new(frame),
         }
     }
 
     /// Returns the label used for terminal messages. Usually just the name of
     /// the closest `task`.
     pub fn frame_label(&self) -> String {
-        match &self.frames.kind {
+        match &self.top_frame.kind {
             FrameKind::Root => "".into(),
-            FrameKind::Task(name) => name.clone(),
-            FrameKind::Operation(name) => {
+            FrameKind::Task { name, .. } => name.clone(),
+            FrameKind::Operation { name, .. } => {
                 let mut out = name.clone();
                 for frame in self.frames().skip(1) {
                     match &frame.kind {
                         FrameKind::Root => panic!("bug: operation frame is child of root frame"),
-                        FrameKind::Task(name) => return format!("{}.{}", name, out),
-                        FrameKind::Operation(name) => out = format!("{}.{}", name, out),
+                        FrameKind::Task { name, .. } => return format!("{}.{}", name, out),
+                        FrameKind::Operation { name, .. } => out = format!("{}.{}", name, out),
                     }
                 }
 

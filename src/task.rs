@@ -30,7 +30,7 @@ impl Task {
     }
 
     pub fn run(&self, ctx: &Context) -> Result<()> {
-        let ctx = ctx.fork(FrameKind::Task(self.name.clone()));
+        let ctx = ctx.fork_task(&self.name);
         verbose!(- [ctx] - "Starting task");
 
         for op in &self.operations {

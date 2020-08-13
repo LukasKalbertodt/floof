@@ -151,7 +151,7 @@ fn executor(
         RunOnChange,
     }
 
-    let ctx = ctx.fork(FrameKind::Operation("watch".into()));
+    let ctx = ctx.fork_op("watch");
     let debounce_duration = config.debounce
         .map(Duration::from_millis)
         .unwrap_or(DEFAULT_DEBOUNCE_DURATION);
