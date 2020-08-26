@@ -114,9 +114,9 @@ async fn proxy(
             let msg = format!("Failed to reach {}\n\n{}", uri, e);
             let html = format!(
                 "<html>\n  \
-                  <head><title>Watchboi can't reach proxy target</title></head>\n  \
+                  <head><title>Floof can't reach proxy target</title></head>\n  \
                   <body>\n    \
-                    <h1>Watchboi failed to connect to the proxy target :(</h1>\n    \
+                    <h1>Floof failed to connect to the proxy target :(</h1>\n    \
                     <pre>{}</pre>\n    \
                     {}\n  \
                   </body>\n\

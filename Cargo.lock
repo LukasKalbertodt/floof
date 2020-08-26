@@ -184,6 +184,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "floof"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bunt",
+ "hyper",
+ "notify",
+ "once_cell",
+ "serde",
+ "serde_yaml",
+ "structopt",
+ "termcolor",
+ "tokio",
+ "tungstenite",
+ "type-map",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1244,24 +1262,6 @@ name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
-
-[[package]]
-name = "watchboi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bunt",
- "hyper",
- "notify",
- "once_cell",
- "serde",
- "serde_yaml",
- "structopt",
- "termcolor",
- "tokio",
- "tungstenite",
- "type-map",
-]
 
 [[package]]
 name = "winapi"

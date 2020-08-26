@@ -47,7 +47,7 @@ fn main() -> Result<()> {
                 None => {
                     eprintln!("No default task defined!");
                     eprintln!("Either define the task 'default' in the configuration or \
-                        run `watchboi run <task>` to run a specific task");
+                        run `floof run <task>` to run a specific task");
                     1
                 }
             }

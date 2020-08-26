@@ -10,7 +10,7 @@ pub struct Args {
     #[structopt(subcommand)]
     pub cmd: Option<Command>,
 
-    /// Path to the configuration file. If not specified, `watchboi.toml` in the
+    /// Path to the configuration file. If not specified, `floof.toml` in the
     /// current directory is used.
     #[structopt(long, short)]
     pub config: Option<PathBuf>,

@@ -1,4 +1,4 @@
-//! Configuration, usually loaded from `watchboi.yaml`.
+//! Configuration, usually loaded from `floof.yaml`.
 
 use std::{
     collections::HashMap,
@@ -15,7 +15,7 @@ use crate::{
 
 
 /// The default filename from which to load the configuration.
-pub const DEFAULT_FILENAME: &str = "watchboi.yaml";
+pub const DEFAULT_FILENAME: &str = "floof.yaml";
 
 
 /// The root configuration object.
@@ -57,7 +57,7 @@ impl Config {
             }
             None => {
                 eprintln!("No configuration found!");
-                eprintln!("A `watchboi.toml` has to exist in the current directory or \
+                eprintln!("A `floof.toml` has to exist in the current directory or \
                     the path to the configuration file has to be given via the \
                     `--config`/`-c` argument");
                 bail!("no configuration found");

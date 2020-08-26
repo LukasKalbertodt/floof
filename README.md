@@ -1,13 +1,13 @@
-Watchboi
-========
+Floof
+=====
 
-[<img alt="CI status of master" src="https://img.shields.io/github/workflow/status/LukasKalbertodt/watchboi/CI/master?label=CI&logo=github&logoColor=white&style=for-the-badge" height="23">](https://github.com/LukasKalbertodt/watchboi/actions?query=workflow%3ACI+branch%3Amaster)
-[<img alt="Crates.io Version" src="https://img.shields.io/crates/v/watchboi?logo=rust&style=for-the-badge" height="23">](https://crates.io/crates/watchboi)
-<img alt="Crates.io Downloads" src="https://img.shields.io/crates/d/watchboi?color=%233498db&label=crates.io%20downloads&style=for-the-badge" height="23">
-<img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/LukasKalbertodt/watchboi/total?color=3498db&label=Github%20downloads&style=for-the-badge" height="23">
+[<img alt="CI status of master" src="https://img.shields.io/github/workflow/status/LukasKalbertodt/floof/CI/master?label=CI&logo=github&logoColor=white&style=for-the-badge" height="23">](https://github.com/LukasKalbertodt/floof/actions?query=workflow%3ACI+branch%3Amaster)
+[<img alt="Crates.io Version" src="https://img.shields.io/crates/v/floof?logo=rust&style=for-the-badge" height="23">](https://crates.io/crates/floof)
+<img alt="Crates.io Downloads" src="https://img.shields.io/crates/d/floof?color=%233498db&label=crates.io%20downloads&style=for-the-badge" height="23">
+<img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/LukasKalbertodt/floof/total?color=3498db&label=Github%20downloads&style=for-the-badge" height="23">
 
 
-Watchboi is a language and tech-stack agnostic, simple-to-use development server, file-watcher and tiny build system.
+Floof is a language and tech-stack agnostic, simple-to-use development server, file-watcher and tiny build system.
 It is mainly useful for web-development (i.e. where you inspect your software in the browser) due to its ability to automatically reload your app in the browser.
 For other projects, [cargo watch](https://github.com/passcod/cargo-watch) or [watchexec](https://github.com/watchexec/watchexec) might be better suited (and those are way more mature).
 
@@ -32,7 +32,7 @@ Currently the best way is to install from `crates.io`.
 You need Rust and Cargo to do that, as you compile the application yourself.
 
 ```
-cargo install watchboi
+cargo install floof
 ```
 
 At some point I will start attaching pre-compiled binaries to the GitHub releases.
@@ -40,7 +40,7 @@ At some point I will start attaching pre-compiled binaries to the GitHub release
 
 ## Example
 
-A `watchboi.toml` is expected in the root folder of the project/in the directory you run `watchboi` in (like `Makefile`).
+A `floof.toml` is expected in the root folder of the project/in the directory you run `floof` in (like `Makefile`).
 That file defines what actions need to be run and configures a bunch of other stuff.
 The following is an example for a project that uses a Rust backend server and a React (JS) frontend.
 There are separate folders `frontend` and `backend` for the two parts of the project.
@@ -62,7 +62,7 @@ run = ["npx webpack --mode=development"]
 reload = "late"
 ```
 
-When running `watchboi` in that directory, the output looks something like this:
+When running `floof` in that directory, the output looks something like this:
 
 ```
 ════════════ 🌀 websockets listening on 'ws://127.0.0.1:8031'
@@ -80,9 +80,9 @@ Backend listening on http://127.0.0.1:3000
 ```
 
 You are then supposed to open `localhost:8030` in your browser.
-This will show exactly the same as your actual backend server (which is listening on `localhost:3000`) as `watchboi` works as a reverse proxy.
-However, `watchboi` injects a small JS snippet responsible for automatically reloading the page in your browser once something changes.
-This snippet communicates with `watchboi` via web sockets.
+This will show exactly the same as your actual backend server (which is listening on `localhost:3000`) as `floof` works as a reverse proxy.
+However, `floof` injects a small JS snippet responsible for automatically reloading the page in your browser once something changes.
+This snippet communicates with `floof` via web sockets.
 
 When changing a frontend file:
 

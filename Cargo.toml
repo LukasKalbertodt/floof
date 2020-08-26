@@ -1,5 +1,5 @@
 [package]
-name = "watchboi"
+name = "floof"
 version = "0.1.0"
 authors = ["Lukas Kalbertodt <lukas.kalbertodt@gmail.com>"]
 edition = "2018"
@@ -8,7 +8,7 @@ description = """
 Language-agnostic, simple-to-use development server, file-watcher and tiny
 build system mainly useful for webdev.
 """
-repository = "https://github.com/LukasKalbertodt/watchboi/"
+repository = "https://github.com/LukasKalbertodt/floof/"
 readme = "README.md"
 license = "MIT/Apache-2.0"
 categories = ["command-line-utilities", "development-tools::build-utils"]

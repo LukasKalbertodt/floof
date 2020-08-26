@@ -1,7 +1,7 @@
-# Watchboi Configuration file format
+# Floof Configuration file format
 
-For watchboi to do anything, it requires a YAML configuration file. This is
-typically `watchboi.yaml` in the current directory, but a different file can be
+For floof to do anything, it requires a YAML configuration file. This is
+typically `floof.yaml` in the current directory, but a different file can be
 passed via the `-c` or `--config` command line parameter.
 
 The configuration file defines a map of *tasks* at the top level, each of which
@@ -20,9 +20,9 @@ The names of the tasks can be chosen arbitrarily. However, in future versions
 (with a major version bump), some names might get reserved for special purposes
 (like setting global values).
 
-There is one special task: `default`. If watchboi is started without any
-arguments, the `default` task is started. If you want to start a non-default
-task, you can run `watchboi run <task>`.
+There is one special task: `default`. If floof is started without any arguments,
+the `default` task is started. If you want to start a non-default task, you can
+run `floof run <task>`.
 
 Running a task executes all its operations in order. If an operation fails,
 execution is stopped and the remaining operations are not executed.
@@ -41,7 +41,7 @@ TODO
 
 ## Operations
 
-Operations are at the core of watchboi: they do the actual work. An "operation"
+Operations are at the core of floof: they do the actual work. An "operation"
 is a very general abstraction, meaning that lots of things can be implemented as
 operation.
 
