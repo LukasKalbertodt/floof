@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::prelude::*;
 
 mod workdir;
+mod concurrently;
 mod copy;
 mod command;
 mod http;
@@ -11,6 +12,7 @@ mod watch;
 
 pub use self::{
     workdir::{WorkDir, SetWorkDir},
+    concurrently::Concurrently,
     copy::Copy,
     command::Command,
     http::Http,
@@ -55,6 +57,12 @@ impl Clone for Box<dyn Operation> {
 }
 
 /// An operation that has been started and that is potentially still running.
+///
+/// Once `finish` or `cancel` return or once `try_finish` returns with
+/// `Ok(Some(_))`, subsequent calls to `finish`, `try_finish` or `cancel` might
+/// exhibit unspecified behavior. The caller thus must ensure that once the
+/// running operation has signalled its completion, those methods are not called
+/// again.
 pub trait RunningOperation {
     /// Blocks and runs the operation to completion.
     fn finish(&mut self, ctx: &Context) -> Result<Outcome>;
@@ -63,7 +71,8 @@ pub trait RunningOperation {
     /// Otherwise, returns `None` but does not block!
     fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>>;
 
-    /// Cancels the operation.
+    /// Cancels the operation. If the operation was already cancelled or
+    /// finished, does nothing and returns `Ok(())`.
     fn cancel(&mut self) -> Result<()>;
 }
 
@@ -99,7 +108,7 @@ impl RunningOperation for Finished {
         Ok(Some(self.0))
     }
     fn cancel(&mut self) -> Result<()> {
-        panic!("bug: called cancel but step is already finished")
+        Ok(())
     }
 }
 

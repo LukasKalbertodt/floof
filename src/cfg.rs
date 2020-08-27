@@ -10,7 +10,7 @@ use serde::{Deserializer, Deserialize, de::{self, MapAccess, SeqAccess, Visitor}
 use crate::{
     Operation, Task,
     prelude::*,
-    op::{Command, Copy, Http, OnChange, Operations, RunTask, SetWorkDir, Watch},
+    op::{Command, Concurrently, Copy, Http, OnChange, Operations, RunTask, SetWorkDir, Watch},
 };
 
 
@@ -57,7 +57,7 @@ impl Config {
             }
             None => {
                 eprintln!("No configuration found!");
-                eprintln!("A `floof.toml` has to exist in the current directory or \
+                eprintln!("A `floof.yaml` has to exist in the current directory or \
                     the path to the configuration file has to be given via the \
                     `--config`/`-c` argument");
                 bail!("no configuration found");
@@ -155,4 +155,4 @@ macro_rules! impl_deserialize_for_op {
     };
 }
 
-impl_deserialize_for_op![Command, Copy, Http, OnChange, RunTask, SetWorkDir, Watch];
+impl_deserialize_for_op![Command, Concurrently, Copy, Http, OnChange, RunTask, SetWorkDir, Watch];
