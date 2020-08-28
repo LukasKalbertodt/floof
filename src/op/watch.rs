@@ -107,7 +107,7 @@ impl Operation for Watch {
         }
 
         let config = self.clone();
-        let running = RunningOperation::new(ctx, |ctx, cancel_request| {
+        let running = RunningOperation::start(ctx, |ctx, cancel_request| {
             // We need to move the watcher in this thread to keep it alive for
             // the whole duration of this operation. If it's dropped, the files are not being watched anymore.
             let _watcher = watcher;

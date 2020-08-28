@@ -27,7 +27,7 @@ impl Operation for Concurrently {
         let op_ctx = ctx.fork_op(Self::KEYWORD);
         let operations = self.0.clone();
 
-        let running = RunningOperation::new(&op_ctx, move |ctx, cancel_request| {
+        let running = RunningOperation::start(&op_ctx, move |ctx, cancel_request| {
             let mut running_ops = operations.iter()
                 .map(|op| op.start(ctx))
                 .collect::<Result<Vec<_>>>()?;

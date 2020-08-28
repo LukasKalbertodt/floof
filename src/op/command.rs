@@ -152,7 +152,7 @@ impl Operation for Command {
         // finished and reply to cancel requests.
 
         let run_command = self.run.clone();
-        let running = RunningOperation::new(ctx, move |ctx, cancel_request| {
+        let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
             // Soo... unfortunately, `process::Child` has a fairly minimal API.
             // What we want is to wait for the process to finish, but retain the
             // possibility to kill it at any time from another thread. There is

@@ -97,7 +97,7 @@ pub struct RunningOperation {
 }
 
 impl RunningOperation {
-    pub fn new<F>(ctx: &Context, op: F) -> Self
+    pub fn start<F>(ctx: &Context, op: F) -> Self
     where
         F: 'static + Send + Sync + FnOnce(&Context, Receiver<()>) -> Result<Outcome>,
     {

@@ -23,7 +23,7 @@ impl Operation for RunTask {
 
     fn start(&self, ctx: &Context) -> Result<RunningOperation> {
         let task_name = self.0.clone();
-        let running = RunningOperation::new(ctx, move |ctx, cancel_request| {
+        let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
             let task = &ctx.config.tasks[&task_name];
 
             let op_ctx = ctx.fork_task(&task_name);
