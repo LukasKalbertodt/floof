@@ -8,7 +8,7 @@ use crate::{
     Context,
     prelude::*,
 };
-use super::{Finished, Operation, Outcome, RunningOperation};
+use super::{Operation, RunningOperation};
 
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,8 +36,8 @@ impl Operation for Http {
         Box::new(self.clone())
     }
 
-    fn start(&self, _ctx: &Context) -> Result<Box<dyn RunningOperation>> {
-        Ok(Box::new(Finished(Outcome::Success)))
+    fn start(&self, _ctx: &Context) -> Result<RunningOperation> {
+        todo!()
     }
 }
 

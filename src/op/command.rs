@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    convert::TryFrom,
+    convert::TryFrom, thread, time::Duration, cmp::min,
 };
 use serde::Deserialize;
 use crate::{
@@ -89,7 +89,6 @@ impl fmt::Display for ProgramAndArgs {
     }
 }
 
-
 impl From<ProgramAndArgs> for Command {
     fn from(src: ProgramAndArgs) -> Self {
         Self {
@@ -121,7 +120,7 @@ impl Operation for Command {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
+    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
         msg!(run [ctx]["command"] "running: {[green]}", self.run);
 
         // Build `std::process::Command`.
@@ -134,9 +133,9 @@ impl Operation for Command {
         };
         command.current_dir(workdir);
 
-        // Run the command and get its status code
-        match command.spawn() {
-            Ok(child) => Ok(Box::new(RunningCommand { child, config: self })),
+        // Start the command and return a descriptive error if that failed.
+        let mut child = match command.spawn() {
+            Ok(child) => child,
             Err(e) => {
                 let mut context = format!("failed to spawn `{}`", self.run);
                 if e.kind() == std::io::ErrorKind::NotFound {
@@ -145,40 +144,65 @@ impl Operation for Command {
                         self.run.program,
                     );
                 }
-                Err(e).context(context)
+                return Err(e).context(context);
             }
-        }
-    }
-}
+        };
 
-struct RunningCommand<'a> {
-    child: std::process::Child,
-    config: &'a Command,
-}
+        // Start a new thread where we regularly check if the command is
+        // finished and reply to cancel requests.
 
-impl RunningCommand<'_> {
-    fn finish_with_status(&self, status: std::process::ExitStatus, ctx: &Context) -> Outcome {
-        if status.success() {
-            Outcome::Success
-        } else {
-            msg!(warn [ctx]["command"] "{[green]} returned non-zero exit code", self.config.run);
-            Outcome::Failure
-        }
-    }
-}
+        let run_command = self.run.clone();
+        let running = RunningOperation::new(ctx, move |ctx, cancel_request| {
+            // Soo... unfortunately, `process::Child` has a fairly minimal API.
+            // What we want is to wait for the process to finish, but retain the
+            // possibility to kill it at any time from another thread. There is
+            // no nice way to do that with `process::Child`.
+            //
+            // The best we can do is busy waiting, checking if the process has
+            // finished or whether the process should be killed. To not
+            // needlessly burn system resources but also not introduce too much
+            // of a delay, we start with a fairly short wait duration which is
+            // doubled each iteration until we reach the max duration to wait
+            // for. That means that we can still burn through very short
+            // commands fairly quickly, while only occasionally checking on long
+            // running processes.
+            const START_SLEEP_DURATION: Duration = Duration::from_micros(100);
+            const MAX_SLEEP_DURATION: Duration = Duration::from_millis(20);
 
+            let mut sleep_duration = START_SLEEP_DURATION;
+            loop {
+                thread::sleep(sleep_duration);
 
-impl RunningOperation for RunningCommand<'_> {
-    fn finish(&mut self, ctx: &Context) -> Result<Outcome> {
-        let status = self.child.wait().context("failed to wait for running process")?;
-        Ok(self.finish_with_status(status, ctx))
-    }
-    fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>> {
-        let status = self.child.try_wait().context("failed to wait for running process")?;
-        Ok(status.map(|status| self.finish_with_status(status, ctx)))
-    }
-    fn cancel(&mut self) -> Result<()> {
-        self.child.kill()?;
-        Ok(())
+                // Check if the process has finished
+                if let Some(status) = child.try_wait()? {
+                    let outcome = if status.success() {
+                        Outcome::Success
+                    } else {
+                        msg!(warn [ctx]["command"]
+                            "{[green]} returned non-zero exit code",
+                            run_command,
+                        );
+                        Outcome::Failure
+                    };
+
+                    return Ok(outcome);
+                }
+
+                // Check if this process should be killed.
+                match cancel_request.try_recv() {
+                    Ok(_) => {
+                        child.kill()?;
+                        return Ok(Outcome::Cancelled);
+                    }
+                    Err(e) if e.is_empty() => {},
+                    Err(e) => return Err(e)?,
+                }
+
+                // Increase sleep duration.
+                sleep_duration = min(sleep_duration * 2, MAX_SLEEP_DURATION);
+            }
+        });
+
+        Ok(running)
     }
 }

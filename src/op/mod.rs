@@ -1,5 +1,6 @@
-use std::fmt;
+use std::{thread, fmt};
 use anyhow::Result;
+use crossbeam_channel::{Sender, Receiver};
 use crate::prelude::*;
 
 mod workdir;
@@ -8,7 +9,7 @@ mod copy;
 mod command;
 mod http;
 mod run_task;
-mod watch;
+// mod watch;
 
 pub use self::{
     workdir::{WorkDir, SetWorkDir},
@@ -17,9 +18,12 @@ pub use self::{
     command::Command,
     http::Http,
     run_task::RunTask,
-    watch::{OnChange, Watch},
+    // watch::{OnChange, Watch},
 };
 
+
+const OP_NO_OUTCOME_ERROR: &str = "bug: operation did not send outcome";
+const BUG_CANCEL_DISCONNECTED: &str = "bug: cancel channel disconnected";
 
 /// Multiple dynamically dispatched operations.
 pub type Operations = Vec<Box<dyn Operation>>;
@@ -33,11 +37,11 @@ pub trait Operation: fmt::Debug + 'static + Send + Sync {
     fn keyword(&self) -> &'static str;
 
     /// Starts the operation.
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>>;
+    fn start(&self, ctx: &Context) -> Result<RunningOperation>;
 
     /// Starts the operation and immediately runs it to completion.
     fn run(&self, ctx: &Context) -> Result<Outcome> {
-        self.start(ctx)?.finish(ctx)
+        self.start(ctx)?.outcome().recv().expect(OP_NO_OUTCOME_ERROR)
     }
 
     /// Validates the operation's configuration. The implementing type can
@@ -56,59 +60,26 @@ impl Clone for Box<dyn Operation> {
     }
 }
 
-/// An operation that has been started and that is potentially still running.
-///
-/// Once `finish` or `cancel` return or once `try_finish` returns with
-/// `Ok(Some(_))`, subsequent calls to `finish`, `try_finish` or `cancel` might
-/// exhibit unspecified behavior. The caller thus must ensure that once the
-/// running operation has signalled its completion, those methods are not called
-/// again.
-pub trait RunningOperation {
-    /// Blocks and runs the operation to completion.
-    fn finish(&mut self, ctx: &Context) -> Result<Outcome>;
-
-    /// Checks if the operation is already finished and returns its outcome.
-    /// Otherwise, returns `None` but does not block!
-    fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>>;
-
-    /// Cancels the operation. If the operation was already cancelled or
-    /// finished, does nothing and returns `Ok(())`.
-    fn cancel(&mut self) -> Result<()>;
-}
-
 /// Result of executing an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub enum Outcome {
     Success,
     Failure,
+    Cancelled,
 }
 
 impl Outcome {
-    pub fn is_failure(&self) -> bool {
-        matches!(self, Self::Failure)
+    pub fn is_success(&self) -> bool {
+        *self == Self::Success
     }
 
     pub fn to_exit_code(&self) -> i32 {
         match self {
             Self::Success => 0,
             Self::Failure => 1,
+            Self::Cancelled => 2,
         }
-    }
-}
-
-/// An implementation of `RunningOperation` for operations that are very short
-/// running and already finish inside `start`.
-struct Finished(Outcome);
-impl RunningOperation for Finished {
-    fn finish(&mut self, _ctx: &Context) -> Result<Outcome> {
-        Ok(self.0)
-    }
-    fn try_finish(&mut self, _ctx: &Context) -> Result<Option<Outcome>> {
-        Ok(Some(self.0))
-    }
-    fn cancel(&mut self) -> Result<()> {
-        Ok(())
     }
 }
 
@@ -118,4 +89,69 @@ pub enum ParentKind<'a> {
     Task(&'a str),
     /// Suboperation of another operation with the given keyword.
     Operation(&'a str),
+}
+
+pub struct RunningOperation {
+    cancel: Option<Sender<()>>,
+    outcome: Receiver<Result<Outcome>>,
+}
+
+impl RunningOperation {
+    pub fn new<F>(ctx: &Context, op: F) -> Self
+    where
+        F: 'static + Send + Sync + FnOnce(&Context, Receiver<()>) -> Result<Outcome>,
+    {
+        let (cancel_tx, cancel_rx) = crossbeam_channel::bounded(0);
+        let (outcome_tx, outcome_rx) = crossbeam_channel::bounded(1);
+        let ctx = ctx.clone();
+
+        thread::spawn(move || {
+            let result = op(&ctx, cancel_rx);
+
+            // We ignore a disconnected channel, as we will stop anyway.
+            let _ = outcome_tx.send(result);
+        });
+
+        Self {
+            cancel: Some(cancel_tx),
+            outcome: outcome_rx,
+        }
+    }
+
+    pub fn finished(outcome: Outcome) -> Self {
+        let (outcome_tx, outcome_rx) = crossbeam_channel::bounded(1);
+        outcome_tx.send(Ok(outcome)).unwrap();
+
+        Self {
+            cancel: None,
+            outcome: outcome_rx,
+        }
+    }
+
+    /// Returns the receiver end of a channel that will receive the `outcome` of
+    /// the operation once it's finished.
+    ///
+    /// The operation sends the outcome into the channel exactly once at its
+    /// end.
+    ///
+    /// This method always returns the same receiver when called on the same
+    /// `self`.
+    pub fn outcome(&self) -> &Receiver<Result<Outcome>> {
+        &self.outcome
+    }
+
+    /// Cancels the operation. If the operation was already finished, this does
+    /// nothing and returns `Ok(())`.
+    pub fn cancel(&mut self) -> Result<()> {
+        // If this is `None`, then there is no corresponding receiver and the
+        // outcome is already in `self.outcome`.
+        if let Some(cancel) = &self.cancel {
+            // We ignore both results: if the other thread has already ended,
+            // that's fine by us; it is supposed to do that anyway.
+            let _ = cancel.send(());
+            let _ = self.outcome.recv();
+        }
+
+        Ok(())
+    }
 }

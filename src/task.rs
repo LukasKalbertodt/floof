@@ -38,7 +38,7 @@ impl Task {
                 format!("failed to run operation for task '{}':\n{:#?}", self.name, op)
             })?;
 
-            if outcome.is_failure() {
+            if !outcome.is_success() {
                 verbose!(
                     - [ctx] - "'{}' operation failed → stopping (no further operations of \
                         this task are ran)",

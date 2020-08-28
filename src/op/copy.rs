@@ -25,7 +25,7 @@ impl Operation for Copy {
         Box::new(self.clone())
     }
 
-    fn start(&self, _ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+    fn start(&self, _ctx: &Context) -> Result<RunningOperation> {
         todo!()
     }
 }

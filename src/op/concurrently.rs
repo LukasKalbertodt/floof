@@ -3,7 +3,8 @@ use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, Operations, Outcome, RunningOperation};
+use super::{Operation, Operations, Outcome, RunningOperation, OP_NO_OUTCOME_ERROR, BUG_CANCEL_DISCONNECTED};
+use crossbeam_channel::Select;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,69 +23,54 @@ impl Operation for Concurrently {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
-        let mut running = Vec::new();
+    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+        let op_ctx = ctx.fork_op(Self::KEYWORD);
+        let operations = self.0.clone();
 
-        let op_ctx = ctx.fork_op("concurrently");
-        for op in &self.0 {
-            running.push(op.start(&op_ctx)?);
-        }
+        let running = RunningOperation::new(&op_ctx, move |ctx, cancel_request| {
+            let mut running_ops = operations.iter()
+                .map(|op| op.start(ctx))
+                .collect::<Result<Vec<_>>>()?;
 
-        // let (tx, rx) = channel();
-        // let handle = thread::spawn(move || {
-        //     match rx.try_recv() {
-        //         Ok(_) => {}
-        //         Err(_) => {}
-        //     }
-        // });
+            while !running_ops.is_empty() {
+                let mut select = Select::new();
+                for (i, running) in running_ops.iter().enumerate() {
+                    let index = select.recv(running.outcome());
+                    assert_eq!(i, index);
+                }
 
-        Ok(Box::new(RunningConcurrently {
-            operations: running,
-            any_failure: false,
-        }))
-    }
-}
-struct RunningConcurrently<'a> {
-    operations: Vec<Box<dyn RunningOperation + 'a>>,
-    any_failure: bool,
-}
+                let cancel_index = select.recv(&cancel_request);
 
-impl RunningOperation for RunningConcurrently<'_> {
-    fn finish(&mut self, ctx: &Context) -> Result<Outcome> {
-        for op in &mut self.operations {
-            let outcome = op.finish(ctx)?;
-            self.any_failure |= outcome.is_failure();
-        }
+                let select_op = select.select();
+                let index = select_op.index();
 
-        Ok(if self.any_failure { Outcome::Failure } else { Outcome::Success })
-    }
-    fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>> {
-        // In the future, we can use `Vec::drain_filter` here.
-        let mut finished = Vec::new();
-        for (i, op) in &mut self.operations.iter_mut().enumerate() {
-            if let Some(outcome) = op.try_finish(ctx)? {
-                finished.push(i);
-                self.any_failure |= outcome.is_failure();
+                if index == cancel_index {
+                    // This operation was cancelled. We don't need the data, but
+                    // we should receive from the channel anyway.
+                    select_op.recv(&cancel_request).expect(BUG_CANCEL_DISCONNECTED);
+
+                    // Cancel all child operations!
+                    for running in &mut running_ops {
+                        running.cancel()?;
+                    }
+
+                    return Ok(Outcome::Cancelled);
+                } else {
+                    // One of the operation finished! Receive its outcome.
+                    let outcome = select_op.recv(running_ops[index].outcome())
+                        .expect(OP_NO_OUTCOME_ERROR)?;
+
+                    if !outcome.is_success() {
+                        return Ok(outcome);
+                    }
+
+                    running_ops.swap_remove(index);
+                }
             }
-        }
 
-        // Remove all operations that have finished. We remove indices from high
-        // to low to not invalidate any indices.
-        for i in finished.into_iter().rev() {
-            self.operations.swap_remove(i);
-        }
+            Ok(Outcome::Success)
+        });
 
-        if self.operations.is_empty() {
-            Ok(Some(if self.any_failure { Outcome::Failure } else { Outcome::Success }))
-        } else {
-            Ok(None)
-        }
-    }
-    fn cancel(&mut self) -> Result<()> {
-        for mut op in self.operations.drain(..) {
-            op.cancel()?;
-        }
-
-        Ok(())
+        Ok(running)
     }
 }

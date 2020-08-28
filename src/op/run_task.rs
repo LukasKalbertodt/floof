@@ -3,7 +3,7 @@ use crate::{
     Config,
     prelude::*,
 };
-use super::{Finished, Operation, Outcome, RunningOperation, ParentKind};
+use super::{Operation, Outcome, RunningOperation, ParentKind, OP_NO_OUTCOME_ERROR};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunTask(String);
@@ -21,14 +21,33 @@ impl Operation for RunTask {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
-        let task = &ctx.config.tasks[&self.0];
+    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+        let task_name = self.0.clone();
+        let running = RunningOperation::new(ctx, move |ctx, cancel_request| {
+            let task = &ctx.config.tasks[&task_name];
 
-        // TODO: run this in new thread and make cancelable. This is a bit
-        // tricky though.
-        let outcome = task.run(ctx)?;
+            for op in &task.operations {
+                let mut running = op.start(&ctx)?;
+                crossbeam_channel::select! {
+                    recv(running.outcome()) -> outcome => {
+                        let outcome = outcome.expect(OP_NO_OUTCOME_ERROR)?;
+                        if !outcome.is_success() {
+                            return Ok(outcome);
+                        }
+                    }
+                    recv(cancel_request) -> result => {
+                        result.expect(OP_NO_OUTCOME_ERROR);
+                        running.cancel()?;
+                        return Ok(Outcome::Cancelled)
+                    }
+                }
+            }
 
-        Ok(Box::new(Finished(outcome)))
+            Ok(Outcome::Success)
+
+        });
+
+        Ok(running)
     }
 
     fn validate(&self, _parent: ParentKind<'_>, config: &Config) -> Result<()> {
@@ -38,51 +57,6 @@ impl Operation for RunTask {
             bail!("task '{}' does not exist", self.0);
         }
 
-        Ok(())
-    }
-}
-
-
-struct Running<'a> {
-    task_name: &'a str,
-    current: Option<Box<dyn RunningOperation>>,
-    already_finished: usize,
-}
-
-impl Running<'_> {
-
-}
-
-impl RunningOperation for Running<'_> {
-    fn finish(&mut self, ctx: &Context) -> Result<Outcome> {
-        if let Some(op) = &mut self.current {
-            let outcome = op.finish(ctx)?;
-            self.already_finished += 1;
-            self.current = None;
-
-            if outcome.is_failure() {
-                return Ok(outcome);
-            }
-        }
-
-        let task = &ctx.config.tasks[self.task_name];
-        for op in &task.operations[self.already_finished..] {
-            let outcome = op.run(ctx)?;
-
-            if outcome.is_failure() {
-                return Ok(outcome);
-            }
-        }
-
-        Ok(Outcome::Success)
-    }
-    fn try_finish(&mut self, ctx: &Context) -> Result<Option<Outcome>> {
-        todo!()
-    }
-    fn cancel(&mut self) -> Result<()> {
-        if let Some(op) = &mut self.current {
-            op.cancel()?;
-        }
         Ok(())
     }
 }

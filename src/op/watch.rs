@@ -4,13 +4,13 @@
 use std::{
     time::{Duration, Instant},
     path::Path,
-    sync::mpsc::{self, RecvTimeoutError, TryRecvError, Receiver},
     thread::{self, JoinHandle},
 };
+use crossbeam_channel::{RecvTimeoutError, TryRecvError, Receiver};
 use notify::{Watcher, RecursiveMode};
 use serde::Deserialize;
 use crate::prelude::*;
-use super::{Finished, Operation, Operations, Outcome, RunningOperation, ParentKind};
+use super::{Operation, Operations, Outcome, RunningOperation, ParentKind};
 
 
 /// We unfortunately can't "listen" on a channel and a child process at the same
@@ -41,11 +41,11 @@ impl Operation for OnChange {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
+    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
         if ctx.top_frame.get_var::<TriggeredByChange>().expect("bug: not in watch context").0 {
             self.0.start(ctx)
         } else {
-            Ok(Box::new(Finished(Outcome::Success)))
+            Ok(RunningOperation::finished(Outcome::Success))
         }
     }
 
@@ -84,7 +84,7 @@ impl Operation for Watch {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation + '_>> {
+    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
         // Prepare watcher.
         let (raw_event_tx, raw_event_rx) = mpsc::channel();
         let mut watcher = notify::raw_watcher(raw_event_tx)?;

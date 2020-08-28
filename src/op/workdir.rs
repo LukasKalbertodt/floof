@@ -4,7 +4,7 @@ use crate::{
     Context,
     prelude::*,
 };
-use super::{Finished, Operation, Outcome, RunningOperation};
+use super::{Operation, Outcome, RunningOperation};
 
 
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ impl Operation for SetWorkDir {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<Box<dyn RunningOperation>> {
+    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
         let new_workdir = ctx.join_workdir(&self.0);
         if !new_workdir.is_dir() {
             bail!(
@@ -41,6 +41,6 @@ impl Operation for SetWorkDir {
         let dir = WorkDir(new_workdir);
         ctx.top_frame.insert_var(dir);
 
-        Ok(Box::new(Finished(Outcome::Success)))
+        Ok(RunningOperation::finished(Outcome::Success))
     }
 }
