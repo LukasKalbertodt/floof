@@ -192,6 +192,10 @@ impl Operation for Command {
                 match cancel_request.try_recv() {
                     Ok(_) => {
                         child.kill()?;
+
+                        // Even after killing, we still have to wait for it to
+                        // avoid creating lots of zombie processes.
+                        child.wait()?;
                         return Ok(Outcome::Cancelled);
                     }
                     Err(e) if e.is_empty() => {},
