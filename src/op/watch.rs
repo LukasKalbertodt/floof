@@ -2,22 +2,18 @@
 //! Defines the `watch` and `on-change` operations.
 
 use std::{
-    time::{Duration, Instant},
+    time::Duration,
     path::Path,
-    thread::{self, JoinHandle},
 };
-use crossbeam_channel::{RecvTimeoutError, TryRecvError, Receiver};
-use notify::{Watcher, RecursiveMode};
+use crossbeam_channel::Receiver;
+use notify::{Event, Watcher, RecursiveMode, RecommendedWatcher};
 use serde::Deserialize;
 use crate::prelude::*;
-use super::{Operation, Operations, Outcome, RunningOperation, ParentKind};
+use super::{
+    Operation, Operations, Outcome, RunningOperation, ParentKind,
+    OP_NO_OUTCOME_ERROR, BUG_CANCEL_DISCONNECTED,
+};
 
-
-/// We unfortunately can't "listen" on a channel and a child process at the same
-/// time, waking up when either changes. So instead, we need to do some busy
-/// waiting. Not completely busy, fortunately. This duration specifies the
-/// timeout when waiting for the channel.
-const BUSY_WAIT_DURATION: Duration = Duration::from_millis(20);
 
 /// The duration for which we debounce watch events.
 const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
@@ -86,9 +82,16 @@ impl Operation for Watch {
 
     fn start(&self, ctx: &Context) -> Result<RunningOperation> {
         // Prepare watcher.
-        let (raw_event_tx, raw_event_rx) = mpsc::channel();
-        let mut watcher = notify::raw_watcher(raw_event_tx)?;
+        //
+        // We pipe all incoming events into a channel. The receiver of the
+        // channel and the watcher itself will be sent to the thread execution
+        // this operation.
+        let (raw_event_tx, raw_event_rx) = crossbeam_channel::unbounded();
+        let mut watcher: RecommendedWatcher = Watcher::new_immediate(move |event| {
+            raw_event_tx.send(event).expect("bug: executor thread unexpectedly ended");
+        })?;
 
+        // Add paths to watch.
         let base = ctx.workdir();
         for path in &self.paths {
             let mut path = Path::new(path).to_path_buf();
@@ -103,86 +106,34 @@ impl Operation for Watch {
             watcher.watch(&path, RecursiveMode::Recursive)?;
         }
 
-        // Spawn a thread that listens for raw watcher notifications. We need
-        // this thread to acquire a (mostly) exact timestamp from when the event
-        // was received. The executor thread might be waiting, so it can't
-        // listen for watch events all the time.
-        let (event_tx, event_rx) = mpsc::channel();
-        thread::spawn(move || {
-            for _raw_event in raw_event_rx {
-                // TODO: send path
-                let event = Event {
-                    time: Instant::now(),
-                };
-                event_tx.send(event).expect("executor thread unexpectedly stopped");
-            }
+        let config = self.clone();
+        let running = RunningOperation::new(ctx, |ctx, cancel_request| {
+            // We need to move the watcher in this thread to keep it alive for
+            // the whole duration of this operation. If it's dropped, the files are not being watched anymore.
+            let _watcher = watcher;
 
-            // Here, the channel has been closed, meaning that the watcher has
-            // been dropped. This only happens if the main thread is cancelled,
-            // so we just stop.
+            run(ctx, config, raw_event_rx, cancel_request)
         });
 
-        let config = self.clone();
-        let ctx = ctx.clone();
-        let executor = thread::spawn(move || executor(&ctx, config, event_rx));
-
-        Ok(Box::new(Running {
-            watcher: Some(watcher),
-            executor: Some(executor),
-        }))
+        Ok(running)
     }
 }
 
-struct Event {
-    time: Instant,
-}
-
-struct Running {
-    watcher: Option<notify::RecommendedWatcher>,
-    executor: Option<JoinHandle<Result<()>>>,
-}
-
-impl RunningOperation for Running {
-    fn finish(&mut self, _ctx: &Context) -> Result<Outcome> {
-        // This will never return as there is no "finish condition" for this
-        // operation.
-        self.executor.take().unwrap()
-            .join().expect("executor thread panicked")?;
-        panic!("executor thread unexpectedly stopped");
-    }
-    fn try_finish(&mut self, _ctx: &Context) -> Result<Option<Outcome>> {
-        Ok(None)
-    }
-    fn cancel(&mut self) -> Result<()> {
-        // By dropping the watcher, the watch thread stop due to disconnected
-        // channel, leading the executor to stop because of that too.
-        self.watcher.take();
-        self.executor.take().unwrap()
-            .join().expect("executor thread panicked")
-    }
-}
-
-/// The code run by the executor thread. It receives file change notifications
-/// from the watcher thread (`triggers`), debounces those and executes tasks.
-fn executor(
+fn run(
     ctx: &Context,
     config: Watch,
-    incoming_events: Receiver<Event>,
-) -> Result<()> {
-    // If the channel disconnects, that means the watcher thread has stopped
-    // which means the main thread tries to stop everything.
-    macro_rules! on_disconnect {
-        () => { return Ok(()) };
-    }
+    fs_events: Receiver<Result<Event, notify::Error>>,
+    cancel_request: Receiver<()>,
+) -> Result<Outcome> {
+    const BUG_WATCHER_GONE: &str = "bug: watcher unexpectedly stopped and dropped channel";
 
     /// This function is better modelled as state machine instead of using
     /// control flow structures. These are the states this function can be in.
     #[derive(Debug)]
     enum State {
-        Initial,
         WaitingForChange,
-        Debouncing(Instant),
-        RunOnChange,
+        Debouncing,
+        Run { triggered_by_change: bool },
     }
 
     let op_ctx = ctx.fork_op("watch");
@@ -195,36 +146,42 @@ fn executor(
         format!("{:.0?}", debounce_duration)
     };
 
-    // Runs all given operations and returns the new state, or `None` if the
-    // channel has disconnected.
+    // Runs all given operations and returns the new state, or `None` if this
+    // operation got cancelled.
     let run_operations = |is_on_change: bool| -> Result<Option<State>> {
         op_ctx.top_frame.insert_var(TriggeredByChange(is_on_change));
         for op in &config.run {
             let mut running = op.start(&op_ctx)?;
 
-            // We have a busy loop here: We regularly check if new events
-            // arrived, in which case we will cancel the operation and enter the
-            // debouncing state. We also regularly check if the operation is
-            // done. If so, we will proceed with the next operation.
-            loop {
-                match incoming_events.recv_timeout(BUSY_WAIT_DURATION) {
-                    Ok(event) => {
-                        msg!(
-                            stop [ctx] ["watch"] "change detected while executing operations! \
-                                Cancelling operations, then debouncing for {}...",
-                            pretty_debounce_duration,
+            crossbeam_channel::select! {
+                recv(running.outcome()) -> outcome => {
+                    let outcome = outcome.expect(OP_NO_OUTCOME_ERROR)?;
+                    if !outcome.is_success() {
+                        verbose!(
+                            - [ctx] - "'{}' operation failed → stopping (no further operations of \
+                                this task are ran)",
+                            op.keyword(),
                         );
-                        running.cancel()?;
-                        return Ok(Some(State::Debouncing(event.time)))
+                        break;
                     }
-                    Err(RecvTimeoutError::Timeout) => {
-                        if running.try_finish(&op_ctx)?.is_some() {
-                            break;
-                        }
-                    }
-                    Err(RecvTimeoutError::Disconnected) => return Ok(None),
-                }
-            };
+                },
+                recv(cancel_request) -> result => {
+                    result.expect(BUG_CANCEL_DISCONNECTED);
+                    running.cancel()?;
+                    return Ok(None);
+                },
+                recv(fs_events) -> event => {
+                    event.expect(BUG_WATCHER_GONE)?;
+
+                    msg!(
+                        stop [ctx] ["watch"] "change detected while executing operations! \
+                            Cancelling operations, then debouncing for {}...",
+                        pretty_debounce_duration,
+                    );
+                    running.cancel()?;
+                    return Ok(Some(State::Debouncing));
+                },
+            }
         }
 
         Ok(Some(State::WaitingForChange))
@@ -232,68 +189,53 @@ fn executor(
 
 
     // Run the state machine forever. Only way to exit is `on_disconnect!()`.
-    let mut state = State::Initial;
+    let mut state = State::Run { triggered_by_change: false };
     loop {
         match state {
-            State::Initial => {
-                msg!(- [ctx]["watch"] "executing operations once on startup...");
-                state = match run_operations(false)? {
+            State::Run { triggered_by_change } => {
+                if triggered_by_change {
+                    msg!(fire [ctx]["watch"] "change detected: running all operations...");
+                } else {
+                    msg!(- [ctx]["watch"] "executing operations once on startup...");
+                }
+
+                state = match run_operations(triggered_by_change)? {
                     Some(new_state) => new_state,
-                    None => on_disconnect!(),
+                    None => return Ok(Outcome::Cancelled),
                 };
             }
             State::WaitingForChange => {
-                match incoming_events.recv() {
-                    Err(_) => on_disconnect!(),
-                    Ok(event) => {
+                crossbeam_channel::select! {
+                    recv(cancel_request) -> result => {
+                        result.expect(BUG_CANCEL_DISCONNECTED);
+                        return Ok(Outcome::Cancelled);
+                    },
+                    recv(fs_events) -> event => {
+                        event.expect(BUG_WATCHER_GONE)?;
+
                         verbose!(
                             waiting [ctx] ["watch"] "change detected, debouncing for {}...",
                             pretty_debounce_duration,
                         );
-                        state = State::Debouncing(event.time);
-                    }
+                        state = State::Debouncing;
+                    },
                 }
             }
-            State::Debouncing(trigger_time) => {
+            State::Debouncing => {
                 // Sleep a bit before checking for new events.
-                let since_trigger = trigger_time.elapsed();
-                if let Some(duration) = debounce_duration.checked_sub(since_trigger) {
-                    thread::sleep(duration);
+                crossbeam_channel::select! {
+                    recv(cancel_request) -> result => {
+                        result.expect(BUG_CANCEL_DISCONNECTED);
+                        return Ok(Outcome::Cancelled);
+                    },
+                    recv(fs_events) -> event => {
+                        event.expect(BUG_WATCHER_GONE)?;
+                        state = State::Debouncing;
+                    },
+                    default(debounce_duration) => {
+                        state = State::Run { triggered_by_change: true };
+                    },
                 }
-
-                match incoming_events.try_recv() {
-                    // There has been a new event in the debounce time, so we
-                    // continue our debounce wait.
-                    Ok(event) => {
-                        // We clear the whole queue here to avoid waiting
-                        // `debounce_duration` for every event.
-                        let mut new_trigger_time = event.time;
-                        loop {
-                            match incoming_events.try_recv() {
-                                Ok(event) => new_trigger_time = event.time,
-                                Err(TryRecvError::Disconnected) => on_disconnect!(),
-                                Err(TryRecvError::Empty) => break,
-                            }
-                        }
-
-                        // TODO: trace output
-
-                        state = State::Debouncing(new_trigger_time);
-                    }
-
-                    // In this case, nothing new has happened and we can finally
-                    // proceed.
-                    Err(TryRecvError::Empty) => state = State::RunOnChange,
-
-                    Err(TryRecvError::Disconnected) => on_disconnect!(),
-                };
-            }
-            State::RunOnChange => {
-                msg!(fire [ctx]["watch"] "change detected: running all operations...");
-                state = match run_operations(true)? {
-                    Some(new_state) => new_state,
-                    None => on_disconnect!(),
-                };
             }
         }
     }

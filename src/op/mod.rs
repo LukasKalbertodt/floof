@@ -9,7 +9,7 @@ mod copy;
 mod command;
 mod http;
 mod run_task;
-// mod watch;
+mod watch;
 
 pub use self::{
     workdir::{WorkDir, SetWorkDir},
@@ -18,7 +18,7 @@ pub use self::{
     command::Command,
     http::Http,
     run_task::RunTask,
-    // watch::{OnChange, Watch},
+    watch::{OnChange, Watch},
 };
 
 
