@@ -26,8 +26,9 @@ impl Operation for RunTask {
         let running = RunningOperation::new(ctx, move |ctx, cancel_request| {
             let task = &ctx.config.tasks[&task_name];
 
+            let op_ctx = ctx.fork_task(&task_name);
             for op in &task.operations {
-                let mut running = op.start(&ctx)?;
+                let mut running = op.start(&op_ctx)?;
                 crossbeam_channel::select! {
                     recv(running.outcome()) -> outcome => {
                         let outcome = outcome.expect(OP_NO_OUTCOME_ERROR)?;
