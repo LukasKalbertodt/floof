@@ -187,7 +187,65 @@ TODO: explain debouncing
 
 ### `http`
 
-TODO
+Starts an HTTP server that can function as a reverse proxy or static file server
+and can automatically reload browser sessions via `reload`.
+
+**Example**
+
+For this example, we assume that your application is a webserver and `cargo run`
+will start it listening on port 8000. With this configuration, the floof HTTP
+server works as a reverse proxy to `localhost:8000` and itself listens on port
+8030 (the default). That means that your website can be viewed via
+`localhost:8000` *and* `localhost:8030`.
+
+Whenever a file in your project changes, your webserver is compiled and
+restarted, and all tabs in your browser that currently show `localhost:8030`
+will automatically reload.
+
+```yaml
+default:
+  - concurrently:
+    - http:
+      - proxy: localhost:8000
+    - watch:
+        paths:
+          - src
+          - Cargo.toml
+        run:
+          - reload:
+          - cargo run
+```
+
+If `proxy` is defined, the server functions as reverse proxy; if `serve` is
+defined, it functions as a static file server. Exactly one of `proxy` or `serve`
+has to be defined.
+
+In either operation mode, the HTTP response will contain a tiny JS snippet that
+is used to reload the browser session. It works like this: this `http` operation
+will also listen on another port (8031 by default) for incominb websocket (WS)
+connections. The JS code in the snippet will attempt to connect to that port and
+keep the connection open indefinitely. When floof wants to reload all browser
+sessions, it can communicate with those sessions via the websocket connection.
+
+#### Configurable properties:
+
+- `proxy`: a socket address denoting the target of the reverse proxy.
+- `serve`: a local path that will be served by the static file server.
+- `addr`: the address of the server to bind to (default: `localhost:8030`).
+- `ws-addr`: the address of the websocket server to bind to (default:
+  `localhost:8031`).
+
+
+### `reload`
+
+Reloads all browser sessions of the nearest `http` operation in the context
+chain. Basically only makes sense inside a `watch` operation.
+
+If the nearest `http` operation functions as a reverse proxy, it will wait until
+the target port is open before reloading. So you can add a `reload:` operation
+right before the operation that starts your webserver and it will be reloaded at
+the correct time.
+
 
 ### `on-change`
 
