@@ -19,6 +19,7 @@ exclude = [".github"]
 anyhow = "1.0"
 bunt = "0.1"
 crossbeam-channel = "0.4.3"
+flume = "0.8"
 hyper = "0.13"
 notify = "5.0.0-pre.3"
 once_cell = "1.4"
@@ -26,6 +27,7 @@ serde = { version = "1.0", features=["derive"] }
 serde_yaml = "0.8"
 structopt = "0.3"
 termcolor = "1.1"
+thiserror = "1.0"
 tokio = { version = "0.2", features = ["macros", "rt-core"] }
-tungstenite = "0.11"
+tokio-tungstenite = "0.11"
 type-map = "0.3"

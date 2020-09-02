@@ -16,7 +16,7 @@ pub use self::{
     concurrently::Concurrently,
     copy::Copy,
     command::Command,
-    http::Http,
+    http::{Http, Reload},
     run_task::RunTask,
     watch::{OnChange, Watch},
 };

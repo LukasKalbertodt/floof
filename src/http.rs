@@ -1,85 +1,139 @@
+#![allow(unused_imports)] // TODO
 use std::{
-    net::{SocketAddr, TcpListener, TcpStream},
-    sync::{mpsc::{self, Receiver, Sender}, Arc, Mutex},
-    thread, time::{Duration, Instant},
+    future::Future,
+    io,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Mutex, Arc},
+    thread,
+    time::{Duration, Instant},
 };
+use flume::{Sender, Receiver};
 use hyper::{
-    Body, Client, Request, Response, Server, Uri, StatusCode,
+    Body, Client, Request, Response, Server as HyperServer, Uri, StatusCode,
     header,
     service::{make_service_fn, service_fn}
 };
-use tungstenite::WebSocket;
-
-use crate::{
-    prelude::*,
-    cfg,
-    context::Context,
-};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::WebSocketStream;
 
 
-pub fn run(config: &cfg::Http, reload_requests: Receiver<String>, ctx: Context) -> Result<()> {
-    let (init_tx, init_rx) = mpsc::channel();
-
-    // Start the HTTP server thread.
-    {
-        let config = config.clone();
-        let init_tx = init_tx.clone();
-        ctx.spawn_thread(move |ctx| run_server(&config, init_tx, ctx));
-    }
-
-    // Potentially start the thread serving the websocket connection for
-    // auto_reloads.
-    if ctx.config.has_reload_step() {
-        let config = config.clone();
-        ctx.spawn_thread(move |ctx| serve_ws(&config, reload_requests, init_tx, ctx));
-    }
-
-    // Wait for all threads to have initialized
-    let waiting_for = if ctx.config.has_reload_step() { 2 } else { 1 };
-    init_rx.iter().take(waiting_for).last();
-
-    Ok(())
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("hyper HTTP server error: {0}")]
+    Hyper(#[from] hyper::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
 }
 
-#[tokio::main]
-pub async fn run_server(
-    config: &cfg::Http,
-    init_done: Sender<()>,
-    ctx: &Context,
-) -> Result<()> {
-    let addr = config.addr();
-    let ws_addr = config.ws_addr();
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// What this server should do.
+    pub mode: Mode,
 
-    let service = if let Some(proxy_target) = config.proxy {
-        let auto_reload = ctx.config.has_reload_step();
+    /// The address that this server should bind to (i.e. basically what you
+    /// have to open in the browser).
+    pub bind: SocketAddr,
 
-        make_service_fn(move |_| {
-            async move {
-                Ok::<_, hyper::Error>(service_fn(move |req| {
-                    proxy(req, proxy_target, ws_addr, auto_reload)
-                }))
-            }
-        })
-    } else {
-        bail!("bug: invalid http config");
+    /// The address the control functionality is bound to. Over this port,
+    /// WebSocket connections for auto-reload are handled and certain actions
+    /// can be triggered.
+    pub bind_control: SocketAddr,
+}
+
+#[derive(Debug, Clone)]
+pub enum Mode {
+    /// Makes this server function as a reverse proxy. HTTP request are verbatim
+    /// forwarded to the given target address and its response will be used. The
+    /// response might be slightly altered though, for example by injecting JS
+    /// code which is needed for automatic reloading.
+    RevProxy {
+        target: SocketAddr,
+    },
+
+    /// Makes this server function as a simple static file server.
+    FileServer {
+        root: PathBuf,
+    },
+}
+
+
+pub struct Server {
+    cancel: Sender<()>,
+    reload: Sender<()>,
+}
+
+impl Server {
+    pub fn new(config: Config) -> Result<(Self, impl Future<Output = Result<(), Error>>), Error> {
+        let (cancel_tx, cancel_rx) = flume::bounded(0);
+        let (reload_tx, reload_rx) = flume::unbounded();
+
+        let listen = run(config, reload_rx, cancel_rx);
+        let server = Self {
+            cancel: cancel_tx,
+            reload: reload_tx,
+        };
+
+        Ok((server, listen))
+    }
+
+    pub fn reload(&self) {
+        self.reload.send(())
+            .expect("bug: server thread has unexpectedly ended");
+    }
+
+    pub fn stop(self) {
+        self.cancel.send(())
+            .expect("bug: server thread has unexpectedly ended");
+    }
+}
+
+
+
+async fn run(config: Config, reload: Receiver<()>, cancel: Receiver<()>) -> Result<(), Error> {
+    let config_clone = config.clone();
+    let (res0, res1) = tokio::try_join!(
+        tokio::spawn(run_http_server(config, cancel)),
+        tokio::spawn(run_ws_server(config_clone, reload)),
+    ).expect("a task was cancelled or panicked");
+
+    res0.and(res1)
+}
+
+async fn run_http_server(config: Config, cancel: Receiver<()>) -> Result<(), Error> {
+    let service = match config.mode {
+        Mode::FileServer { .. } => {
+            panic!("Fileserver not yet implemented :-(");
+        }
+        Mode::RevProxy { target } => {
+            let bind_control = config.bind_control;
+            make_service_fn(move |_| {
+                async move {
+                    Ok::<_, hyper::Error>(service_fn(move |req| {
+                        rev_proxy(req, target, bind_control)
+                    }))
+                }
+            })
+        }
     };
 
-    let server = Server::bind(&addr).serve(service);
-    ctx.ui.listening(&addr);
-    init_done.send(()).unwrap();
-
+    let server = hyper::Server::bind(&config.bind).serve(service);
+    let server = server.with_graceful_shutdown(async move {
+        // We don't care if the other side of the channel hung up or not, we
+        // will quit either way.
+        let _ = cancel.recv_async().await;
+    });
     server.await?;
 
     Ok(())
 }
 
 
-async fn proxy(
+async fn rev_proxy(
     mut req: Request<Body>,
     target: SocketAddr,
-    ws_addr: SocketAddr,
-    auto_reload: bool,
-) -> Result<Response<Body>> {
+    control_addr: SocketAddr,
+) -> Result<Response<Body>, Error> {
     let uri = Uri::builder()
         .scheme("http")
         .authority(target.to_string().as_str())
@@ -90,14 +144,13 @@ async fn proxy(
 
     let client = Client::new();
     let response = match client.request(req).await {
-        Ok(response) if !auto_reload => response,
         Ok(response) => {
             let content_type = response.headers().get(header::CONTENT_TYPE);
             if content_type.is_some() && content_type.unwrap().as_ref().starts_with(b"text/html") {
                 let (parts, body) = response.into_parts();
                 let body = hyper::body::to_bytes(body).await?;
 
-                let new_body = inject_into(&body, ws_addr);
+                let new_body = inject_into(&body, control_addr);
                 let new_len = new_body.len();
                 let new_body = Body::from(new_body);
 
@@ -122,7 +175,7 @@ async fn proxy(
                   </body>\n\
                 </html>",
                 msg,
-                reload_script(ws_addr),
+                reload_script(control_addr),
             );
 
             Response::builder()
@@ -137,14 +190,14 @@ async fn proxy(
     Ok(response)
 }
 
-fn reload_script(ws_addr: SocketAddr) -> String {
+fn reload_script(control_addr: SocketAddr) -> String {
     const JS_CODE: &str = include_str!("inject.js");
 
-    let js = JS_CODE.replace("INSERT_PORT_HERE_KTHXBYE", &ws_addr.port().to_string());
+    let js = JS_CODE.replace("INSERT_PORT_HERE_KTHXBYE", &control_addr.port().to_string());
     format!("<script>\n{}</script>", js)
 }
 
-fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
+fn inject_into(input: &[u8], control_addr: SocketAddr) -> Vec<u8> {
     let mut body_close_idx = None;
     let mut inside_comment = false;
     for i in 0..input.len() {
@@ -162,63 +215,73 @@ fn inject_into(input: &[u8], ws_addr: SocketAddr) -> Vec<u8> {
     // end.
     let insert_idx = body_close_idx.unwrap_or(input.len());
     let mut out = input[..insert_idx].to_vec();
-    out.extend_from_slice(reload_script(ws_addr).as_bytes());
+    out.extend_from_slice(reload_script(control_addr).as_bytes());
     out.extend_from_slice(&input[insert_idx..]);
     out
 }
 
-fn serve_ws(
-    config: &cfg::Http,
-    reload_requests: Receiver<String>,
-    init_done: Sender<()>,
-    ctx: &Context,
-) -> Result<()> {
-    let sockets = Arc::new(Mutex::new(Vec::<WebSocket<_>>::new()));
+async fn run_ws_server(
+    config: Config,
+    reload: Receiver<()>,
+) -> Result<(), Error> {
+    let sockets = Arc::new(Mutex::new(Vec::<WebSocketStream<_>>::new()));
 
     // Start thread that listens for incoming refresh requests.
     {
-        let proxy_target = config.proxy;
+        let proxy_target = match config.mode {
+            Mode::RevProxy { target } => Some(target),
+            Mode::FileServer { .. } => None,
+        };
         let sockets = sockets.clone();
-        let ctx = ctx.clone();
-        thread::spawn(move || {
-            for task_name in reload_requests {
+        tokio::spawn(async move {
+            while let Ok(_) = reload.recv_async().await {
                 if let Some(target) = proxy_target {
-                    if !wait_until_socket_open(target, &ctx) {
+                    if !wait_until_socket_open(target).await {
+                        // Socket did not become available, so we just ignore
+                        // this reload request.
                         continue;
                     }
                 }
-
-                ctx.ui.reload_browser(&task_name);
 
                 // All connections are closed when the `TcpStream` inside those
                 // `WebSocket` is dropped.
                 sockets.lock().unwrap().clear();
             }
+
+            // Receiving failed because the channel was closed. This is fine, we
+            // just stop now.
         });
     }
 
     // Listen for new WS connections, accept them and push them in the vector.
-    let server = TcpListener::bind(config.ws_addr())?;
-    ctx.ui.listening_ws(&config.ws_addr());
-    init_done.send(()).unwrap();
+    let mut server = TcpListener::bind(config.bind_control).await?;
 
-    for stream in server.incoming() {
-        let websocket = tungstenite::accept(stream?)?;
-        sockets.lock().unwrap().push(websocket);
+    while let Ok((raw_stream, _addr)) = server.accept().await {
+        let sockets = sockets.clone();
+        tokio::spawn(async move {
+            let ws = tokio_tungstenite::accept_async(raw_stream).await;
+            match ws {
+                Err(_) => {
+                    // TODO: on error callback or sth
+                }
+                Ok(ws) => {
+                    sockets.lock().unwrap().push(ws);
+                }
+            }
+        });
     }
 
     Ok(())
 }
 
-fn wait_until_socket_open(target: SocketAddr, ctx: &Context) -> bool {
+async fn wait_until_socket_open(target: SocketAddr) -> bool {
     const POLL_PERIOD: Duration = Duration::from_millis(20);
     const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
     let start_wait = Instant::now();
-
     while start_wait.elapsed() < PORT_WAIT_TIMEOUT {
         let before_connect = Instant::now();
-        if TcpStream::connect_timeout(&target, POLL_PERIOD).is_ok() {
+        if let Ok(Ok(_)) = tokio::time::timeout(POLL_PERIOD, TcpStream::connect(&target)).await {
             return true;
         }
 
@@ -227,6 +290,7 @@ fn wait_until_socket_open(target: SocketAddr, ctx: &Context) -> bool {
         }
     }
 
-    ctx.ui.port_wait_timeout(target, PORT_WAIT_TIMEOUT);
+    // TODO: call a callback here
+
     false
 }
