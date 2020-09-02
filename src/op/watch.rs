@@ -196,7 +196,7 @@ fn run(
                 if triggered_by_change {
                     msg!(fire [ctx]["watch"] "change detected: running all operations...");
                 } else {
-                    msg!(- [ctx]["watch"] "executing operations once on startup...");
+                    verbose!(- [ctx]["watch"] "executing operations once on startup...");
                 }
 
                 state = match run_operations(triggered_by_change)? {

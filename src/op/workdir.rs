@@ -36,7 +36,7 @@ impl Operation for SetWorkDir {
             );
         }
 
-        msg!(- [ctx]["set-workdir"] "set working directory to {[cyan]}", new_workdir.display());
+        verbose!(- [ctx]["set-workdir"] "set working directory to {[cyan]}", new_workdir.display());
 
         let dir = WorkDir(new_workdir);
         ctx.top_frame.insert_var(dir);
