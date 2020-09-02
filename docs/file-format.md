@@ -28,13 +28,41 @@ Running a task executes all its operations in order. If an operation fails,
 execution is stopped and the remaining operations are not executed.
 
 
-## Execution context/variables
+## Execution context
 
-TODO
+Each operation is executed in an execution context. Each context might have a
+parent context, thus we are dealing with a context tree. The root of the tree is
+the task that is started first (e.g. `default`). Operations that start other
+operations or tasks (e.g. `watch`, `concurrently`, `run-task`) each create a new
+child context for their child operations.
 
-### Working directory
+This is important because operations can store values inside of their execution
+context. Other operations can read those values, allowing operations to
+communicate with each other. Most operations will use the closest value in their
+context chain (the path from their context to the root context). That means that
+the current context is checked first; when it does not contain the expected
+value, its parent is searched, until the value is found or the root of the
+context tree is reached.
 
-TODO
+For example, the `command` operation (among others) tries to retrieve the
+working directory from the nearest context. The `set-workdir` operation can be
+used to set that value in the current context.
+
+```yaml
+default:
+  - set-workdir: /tmp
+  - pwd     # /tmp
+  - run-task: foo
+
+foo:
+  # No workdir set in current context, but in parent one ('default').
+  - pwd     # /tmp
+  - run-task: bar
+
+bar:
+  - set-workdir: /home
+  - pwd     # /home
+```
 
 <br>
 <br>
@@ -46,10 +74,6 @@ is a very general abstraction, meaning that lots of things can be implemented as
 operation.
 
 ### `command`
-
-| Async | Cancelable |
-| ----- | ---------- |
-| ✅    | ✅         |
 
 Allows to execute an arbitrary external command.
 
@@ -103,8 +127,9 @@ unix).
 - `run`: the actual command. Can be specified as bare string, explicitly quoted
   string or as an array of strings.
 - `workdir`: specifies the working directory in which the command is executed.
-  By default, the working directory of the current execution context is used.
-  See [the "working directory" section](#working-directory) for more details.
+  By default, the working directory is retrieved from the nearest execution
+  context that has the working directory set.
+
 
 
 ### `copy`
@@ -112,10 +137,6 @@ unix).
 TODO
 
 ### `watch`
-
-| Async | Cancelable |
-| ----- | ---------- |
-| ✅    | ✅         |
 
 Watches directories and/or files and triggers user defined operations when a
 change is detected.
@@ -170,19 +191,50 @@ TODO
 
 ### `on-change`
 
-| Async | Cancelable |
-| ----- | ---------- |
-| ❌    | ❌         |
-
 Only executes another operation if the operation was triggered by a file system
-change. Can only be used as part of a `watch` operation.
+change. Can only be used as part of a `watch` operation. See [`watch`
+operation](#watch) for more information.
 
-TODO
+**Example**
+
+Here, when starting floof, `echo bar` is executed. Then, whenever one of the
+watched files changes, `echo foo` followed by `echo bar` is executed.
+
+```yaml
+default:
+  - watch:
+      paths:
+        - src
+        - package.json
+      run:
+        - on-change: echo foo
+        - echo bar
+```
+
 
 ### `set-workdir`
 
-| Async | Cancelable |
-| ----- | ---------- |
-| ❌    | ❌         |
+Sets the working directory in the current execution context. Operations that are
+executed after this operation in the current context or any child contexts use
+this working directory. That is, unless the working directory is overwritten
+(e.g. by another `set-workdir` operation).
 
-TODO
+The starting working directory is always the directory of the configuration
+file.
+
+**Example**
+
+```yaml
+default:
+  - make          # executed in same directory as config file
+  - set-workdir: build
+  - strip app     # executed in '{config-file-dir}/build'
+```
+
+There are different behaviors for different paths:
+
+- If the given path is absolute, that exact path is used.
+- If the given path starts with `./`, it is appended to the current working
+  directory.
+- Otherwise, the path is appended to the path of the configuration file (minus
+  file name).
