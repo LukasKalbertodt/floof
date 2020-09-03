@@ -148,12 +148,9 @@ impl TryFrom<String> for Addr {
     type Error = Error;
 
     fn try_from(src: String) -> Result<Self, Self::Error> {
-        let addrs = src.to_socket_addrs()?.collect::<Vec<_>>();
-        if addrs.len() != 1 {
-            bail!("expected one address, but found {}", addrs.len());
-        }
-
-        Ok(Self(addrs[0]))
+        let addr = src.to_socket_addrs()?.next()
+            .ok_or(anyhow!("expected one address, but parsing '{}' returned none", &src))?;
+        Ok(Self(addr))
     }
 }
 
