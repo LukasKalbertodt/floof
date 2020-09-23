@@ -1,7 +1,7 @@
 use anyhow::{bail, Error};
 use std::{
     convert::TryFrom,
-    net::{SocketAddr, ToSocketAddrs}, fmt, future::Future, thread,
+    net::{SocketAddr, ToSocketAddrs}, fmt, future::Future, thread, sync::Arc,
 };
 use crossbeam_channel::Sender;
 use serde::Deserialize;
@@ -46,6 +46,7 @@ impl Operation for Http {
         let default_addr: SocketAddr = "127.0.0.1:8030".parse().unwrap();
         let default_ws_addr: SocketAddr = "127.0.0.1:8031".parse().unwrap();
 
+        // Prepare configuration for dev server
         let bind = self.addr.map_or(default_addr, |a| a.0);
         let bind_control = self.ws_addr.map_or(default_ws_addr, |a| a.0);
         let mode = match (self.proxy, &self.serve) {
@@ -54,10 +55,21 @@ impl Operation for Http {
             (Some(proxy_target), None) => Mode::RevProxy { target: proxy_target.0 },
             (None, Some(_)) => panic!("file server not implemented yet :("),
         };
+        let callback_ctx = ctx.clone();
+        let callback = Arc::new(move |event| {
+            match event {
+                crate::http::Event::Reload => {
+                    msg!(reload [callback_ctx]["http"] "Reloading all active sessions");
 
+                }
+                _ => {}
+            }
+        });
+        let config = crate::http::Config { mode, bind, bind_control, callback };
+
+        // Setup communication for reload requests.
         let (reload_tx, reload_rx) = crossbeam_channel::unbounded();
         ctx.top_frame.insert_var(Reloader(reload_tx));
-
 
 
         let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
@@ -68,7 +80,6 @@ impl Operation for Http {
             }
 
 
-            let config = crate::http::Config { mode, bind, bind_control };
             let (server, listen) = Server::new(config)?;
 
             let (server_done_tx, server_done_rx) = crossbeam_channel::bounded(1);
@@ -125,7 +136,7 @@ impl Operation for Reload {
     }
 
     fn start(&self, ctx: &Context) -> Result<RunningOperation> {
-        verbose!(- [ctx]["reload"] "Reloading!");
+        verbose!(- [ctx]["reload"] "Sent reload request");
         match ctx.get_closest_var::<Reloader>() {
             Some(reloader) => {
                 reloader.0.send(()).expect("bug: reload channel in reloader has hung up");

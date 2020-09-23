@@ -26,7 +26,7 @@ pub enum Error {
     Io(#[from] io::Error),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     /// What this server should do.
     pub mode: Mode,
@@ -39,6 +39,10 @@ pub struct Config {
     /// WebSocket connections for auto-reload are handled and certain actions
     /// can be triggered.
     pub bind_control: SocketAddr,
+
+    /// A callback that is called whenever anything notable happens. Also see
+    /// [`Event`].
+    pub callback: Arc<dyn Fn(Event) + Send + Sync>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +61,22 @@ pub enum Mode {
     },
 }
 
+/// Things that can happen when using this dev server. This is mainly used in
+/// the callback.
+#[non_exhaustive]
+pub enum Event {
+    /// The main HTTP server started listening and is now ready to receive
+    /// requests.
+    MainServerStarted,
+
+    /// The control HTTP server started listening and is now ready to receive
+    /// requests.
+    ControlServerStarted,
+
+    /// A reload command is sent via WS to all active sessions. This is only
+    /// fired after the socket has been waited on.
+    Reload,
+}
 
 pub struct Server {
     cancel: Sender<()>,
@@ -123,6 +143,8 @@ async fn run_http_server(config: Config, cancel: Receiver<()>) -> Result<(), Err
         // will quit either way.
         let _ = cancel.recv_async().await;
     });
+
+    (config.callback)(Event::MainServerStarted);
     server.await?;
 
     Ok(())
@@ -233,6 +255,7 @@ async fn run_ws_server(
             Mode::FileServer { .. } => None,
         };
         let sockets = sockets.clone();
+        let callback = config.callback.clone();
         tokio::spawn(async move {
             while let Ok(_) = reload.recv_async().await {
                 if let Some(target) = proxy_target {
@@ -245,6 +268,7 @@ async fn run_ws_server(
 
                 // All connections are closed when the `TcpStream` inside those
                 // `WebSocket` is dropped.
+                callback(Event::Reload);
                 sockets.lock().unwrap().clear();
             }
 
@@ -255,6 +279,7 @@ async fn run_ws_server(
 
     // Listen for new WS connections, accept them and push them in the vector.
     let mut server = TcpListener::bind(config.bind_control).await?;
+    (config.callback)(Event::ControlServerStarted);
 
     while let Ok((raw_stream, _addr)) = server.accept().await {
         let sockets = sockets.clone();
