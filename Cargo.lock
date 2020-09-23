@@ -61,9 +61,9 @@ dependencies = [
 
 [[package]]
 name = "bunt"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cea10ffe8284fa58449999363754310f02c14341eebbe6d6d8114a20aebf3d64"
+checksum = "617e554cdcc7410d5105fa652d2be08faf63d3a2e941534fec413217bce71fe3"
 dependencies = [
  "bunt-macros",
  "termcolor",
@@ -71,13 +71,13 @@ dependencies = [
 
 [[package]]
 name = "bunt-macros"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4e933115fd38a2271140ccc2d8757408a705176878c6b929d8d353601b14913"
+checksum = "096ec41be7adce6b98ab958587c501e0934d8923ba68a998b14a98a58c520c8e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "unicode-xid",
 ]
 
 [[package]]

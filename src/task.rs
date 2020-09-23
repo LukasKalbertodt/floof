@@ -41,7 +41,7 @@ impl Task {
             }
         }
 
-        verbose!(- [ctx] - "Finished running all operations of task", self.name);
+        verbose!(- [ctx] - "Finished running all operations of task");
 
         Ok(Outcome::Success)
     }

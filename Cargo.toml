@@ -17,7 +17,7 @@ exclude = [".github"]
 
 [dependencies]
 anyhow = "1.0"
-bunt = "0.1"
+bunt = "0.2.1"
 crossbeam-channel = "0.4.3"
 flume = "0.8"
 hyper = "0.13"
