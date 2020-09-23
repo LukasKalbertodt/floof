@@ -1,10 +1,3 @@
-// use std::{
-//     sync::mpsc::{channel, Sender, Receiver, TryRecvError, RecvTimeoutError},
-//     thread, path::Path, time::{Duration, Instant},
-// };
-
-// use notify::{Watcher, RecursiveMode};
-
 use crate::{
     Config, Operations,
     prelude::*,

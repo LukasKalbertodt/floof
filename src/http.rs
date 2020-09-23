@@ -1,4 +1,3 @@
-#![allow(unused_imports)] // TODO
 use std::{
     future::Future,
     io,
@@ -10,7 +9,7 @@ use std::{
 };
 use flume::{Sender, Receiver};
 use hyper::{
-    Body, Client, Request, Response, Server as HyperServer, Uri, StatusCode,
+    Body, Client, Request, Response, Uri, StatusCode,
     header,
     service::{make_service_fn, service_fn}
 };
