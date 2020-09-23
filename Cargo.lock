@@ -181,7 +181,6 @@ dependencies = [
  "serde",
  "serde_yaml",
  "structopt",
- "termcolor",
  "thiserror",
  "tokio",
  "tokio-tungstenite",

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use structopt::StructOpt;
-use termcolor::ColorChoice;
+use bunt::termcolor::ColorChoice;
 
 
 #[derive(StructOpt)]
