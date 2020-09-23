@@ -4,7 +4,6 @@ Floof
 [<img alt="CI status of master" src="https://img.shields.io/github/workflow/status/LukasKalbertodt/floof/CI/master?label=CI&logo=github&logoColor=white&style=for-the-badge" height="23">](https://github.com/LukasKalbertodt/floof/actions?query=workflow%3ACI+branch%3Amaster)
 [<img alt="Crates.io Version" src="https://img.shields.io/crates/v/floof?logo=rust&style=for-the-badge" height="23">](https://crates.io/crates/floof)
 <img alt="Crates.io Downloads" src="https://img.shields.io/crates/d/floof?color=%233498db&label=crates.io%20downloads&style=for-the-badge" height="23">
-<img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/LukasKalbertodt/floof/total?color=3498db&label=Github%20downloads&style=for-the-badge" height="23">
 
 
 Floof is a language and tech-stack agnostic, simple-to-use development server, file-watcher and tiny build system.
@@ -13,17 +12,16 @@ For other projects, [cargo watch](https://github.com/passcod/cargo-watch) or [wa
 
 **Features**:
 
+- [x] Run arbitrary commands
 - [x] Watch for file changes (with debouncing)
-- [x] Run arbitrary commands at the start or whenever a file changes
-- [x] Automatically reload the page in your browser when something changes
-    - [x] Either once all commands are done (useful when the commands generate static files)
-    - [x] Or once the reverse-proxy target port is open again (useful when the commands start a webserver)
+- [x] Automatically reload the page in your browser
 - [x] HTTP server
     - [x] Reverse-proxy (usually to your backend application)
     - [x] Inject JS code for "auto reload"
     - [ ] Static file server
+- [x] Tiny build-system
+- [ ] Platform-independent file system operations (copy, ...)
 - [ ] Templates to support zero-configuration use in some situations
-- [ ] Tiny build-system
 
 
 ## Installation
@@ -40,71 +38,54 @@ At some point I will start attaching pre-compiled binaries to the GitHub release
 
 ## Example
 
-A `floof.toml` is expected in the root folder of the project/in the directory you run `floof` in (like `Makefile`).
+A `floof.yaml` is expected in the root folder of the project/in the directory you run `floof` in (like `Makefile`).
 That file defines what actions need to be run and configures a bunch of other stuff.
-The following is an example for a project that uses a Rust backend server and a React (JS) frontend.
-There are separate folders `frontend` and `backend` for the two parts of the project.
+The following is an example for a simple project that uses a Rust backend server that serves HTML and listens on port 3030.
 
-```toml
-[http]
-proxy = "127.0.0.1:3000"
-
-[actions.backend]
-base = "backend"
-watch = ["Cargo.toml", "Cargo.lock", "src/"]
-run = ["cargo run"]
-reload = "early"
-
-[actions.frontend]
-base = "frontend"
-watch = ["package.json", "package-lock.json", "webpack.config.js", "src/"]
-run = ["npx webpack --mode=development"]
-reload = "late"
+```yaml
+default:
+  - concurrently:
+    - http:
+        proxy: 127.0.0.1:3030
+    - watch:
+        paths:
+          - Cargo.toml
+          - Cargo.lock
+          - src/
+        run:
+          - reload:      # This will wait for port 3030 to become available
+          - cargo run    # This long running command is killed on file changes
 ```
 
 When running `floof` in that directory, the output looks something like this:
 
 ```
-════════════ 🌀 websockets listening on 'ws://127.0.0.1:8031'
-════════════ 🌀 listening on 'http://127.0.0.1:8030'
-════════════ 👁 watching for 'backend': `Cargo.toml`, `Cargo.lock` and `src/`
-════════════ 🐇 running (on_start): cargo run
-════════════ 👁 watching for 'frontend': `package.json`, `package-lock.json`, `webpack.config.js` and 1 more
-════════════ 🐇 running (on_start): npx webpack --mode=development
-   Compiling backend v0.1.0
-    Finished dev [unoptimized + debuginfo] target(s) in 0.05s
-     Running `target/debug/backend`
-Backend listening on http://127.0.0.1:3000
+════════════╡    [default][http] Listening on http://127.0.0.1:8030
+════════════╡ ▶️  [default][command] running: cargo run
+   Compiling floof-example v0.0.0
+    Finished dev [unoptimized + debuginfo] target(s) in 2.21s
+     Running `target/debug/floof-example`
 
-... output from webpack ...
+... output from your server application ...
+
+════════════╡ ♻️  [default][http] Reloading all active sessions
 ```
 
 You are then supposed to open `localhost:8030` in your browser.
-This will show exactly the same as your actual backend server (which is listening on `localhost:3000`) as `floof` works as a reverse proxy.
+This will show exactly the same as your actual backend server (which is listening on `localhost:3030`) as `floof` works as a reverse proxy.
 However, `floof` injects a small JS snippet responsible for automatically reloading the page in your browser once something changes.
 This snippet communicates with `floof` via web sockets.
 
-When changing a frontend file:
+When changing a file:
 
 ```
-════════════ 🔥 change detected for action 'frontend', executing handler...
-════════════ 🐇 running (on_change): npx webpack --mode=development
+════════════╡ 🛑 [default][watch] change detected while executing operations! Cancelling operations, then debouncing for 500ms...
+════════════╡ 🔥 [default][watch] change detected: running all operations...
+════════════╡ ▶️  [default][command] running: cargo run
 
-... webpack output ...
+... output from your server application ...
 
-════════════ ↻  reloading browser (due to change in action 'frontend')
-```
-
-When changing a backend file:
-
-```
-════════════ 🔥 change detected for action 'backend', executing handler...
-════════════ 🐇 running (on_change): cargo run
-   Compiling backend v0.1.0
-    Finished dev [unoptimized + debuginfo] target(s) in 1.24s
-     Running `target/debug/backend`
-Backend listening on http://127.0.0.1:3000
-════════════ ↻  reloading browser (due to change in action 'backend')
+════════════╡ ♻️  [default][http] Reloading all active sessions
 ```
 
 
