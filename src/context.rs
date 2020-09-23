@@ -157,24 +157,14 @@ impl Context {
         }
     }
 
-    /// Returns the label used for terminal messages. Usually just the name of
-    /// the closest `task`.
+    /// Returns the label used for terminal messages. Just the name of the
+    /// closest `task`. Panics if there is no task in the current frames.
     pub fn frame_label(&self) -> String {
-        match &self.top_frame.kind {
-            FrameKind::Root => "".into(),
-            FrameKind::Task { name, .. } => name.clone(),
-            FrameKind::Operation { name, .. } => {
-                let mut out = name.clone();
-                for frame in self.frames().skip(1) {
-                    match &frame.kind {
-                        FrameKind::Root => panic!("bug: operation frame is child of root frame"),
-                        FrameKind::Task { name, .. } => return format!("{}.{}", name, out),
-                        FrameKind::Operation { name, .. } => out = format!("{}.{}", name, out),
-                    }
-                }
-
-                panic!("bug: operation frame is root frame");
+        self.frames().find_map(|frame| {
+            match &frame.kind {
+                FrameKind::Task { name, .. } => Some(name.clone()),
+                _ => None
             }
-        }
+        }).expect("no task in context frames")
     }
 }
