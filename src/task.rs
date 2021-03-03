@@ -21,12 +21,12 @@ impl Task {
         Ok(())
     }
 
-    pub fn run(&self, ctx: &Context) -> Result<Outcome> {
+    pub async fn run(&self, ctx: &Context) -> Result<Outcome> {
         let ctx = ctx.fork_task(&self.name);
         verbose!(- [ctx] - "Starting task");
 
         for op in &self.operations {
-            let outcome = op.run(&ctx).with_context(|| {
+            let outcome = op.run(&ctx).await.with_context(|| {
                 // TODO: nicer output of the operation
                 format!("failed to run operation for task '{}':\n{:#?}", self.name, op)
             })?;

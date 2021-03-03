@@ -1,13 +1,13 @@
 use std::{
     fmt,
-    convert::TryFrom, thread, time::Duration, cmp::min,
+    convert::TryFrom,
 };
 use serde::Deserialize;
 use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, Outcome, RunningOperation};
+use super::{Operation, Outcome};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Command {
@@ -111,6 +111,7 @@ impl Command {
     }
 }
 
+#[async_trait::async_trait]
 impl Operation for Command {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -120,93 +121,40 @@ impl Operation for Command {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, ctx: &Context) -> Result<Outcome> {
         msg!(run [ctx]["command"] "running: {[green]}", self.run);
 
-        // Build `std::process::Command`.
-        let mut command = std::process::Command::new(&self.run.program);
+        let mut command = tokio::process::Command::new(&self.run.program);
+        command.kill_on_drop(true);
         command.args(&self.run.args);
-
-        let workdir = match &self.workdir {
+        command.current_dir(match &self.workdir {
             Some(workdir) => ctx.join_workdir(&workdir),
             None => ctx.workdir(),
-        };
-        command.current_dir(workdir);
-
-        // Start the command and return a descriptive error if that failed.
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(e) => {
-                let mut context = format!("failed to spawn `{}`", self.run);
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    context += &format!(
-                        " (you probably don't have the command '{}' installed)",
-                        self.run.program,
-                    );
-                }
-                return Err(e).context(context);
-            }
-        };
-
-        // Start a new thread where we regularly check if the command is
-        // finished and reply to cancel requests.
-
-        let run_command = self.run.clone();
-        let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
-            // Soo... unfortunately, `process::Child` has a fairly minimal API.
-            // What we want is to wait for the process to finish, but retain the
-            // possibility to kill it at any time from another thread. There is
-            // no nice way to do that with `process::Child`.
-            //
-            // The best we can do is busy waiting, checking if the process has
-            // finished or whether the process should be killed. To not
-            // needlessly burn system resources but also not introduce too much
-            // of a delay, we start with a fairly short wait duration which is
-            // doubled each iteration until we reach the max duration to wait
-            // for. That means that we can still burn through very short
-            // commands fairly quickly, while only occasionally checking on long
-            // running processes.
-            const START_SLEEP_DURATION: Duration = Duration::from_micros(100);
-            const MAX_SLEEP_DURATION: Duration = Duration::from_millis(20);
-
-            let mut sleep_duration = START_SLEEP_DURATION;
-            loop {
-                thread::sleep(sleep_duration);
-
-                // Check if the process has finished
-                if let Some(status) = child.try_wait()? {
-                    let outcome = if status.success() {
-                        Outcome::Success
-                    } else {
-                        msg!(warn [ctx]["command"]
-                            "{[green]} returned non-zero exit code",
-                            run_command,
-                        );
-                        Outcome::Failure
-                    };
-
-                    return Ok(outcome);
-                }
-
-                // Check if this process should be killed.
-                match cancel_request.try_recv() {
-                    Ok(_) => {
-                        child.kill()?;
-
-                        // Even after killing, we still have to wait for it to
-                        // avoid creating lots of zombie processes.
-                        child.wait()?;
-                        return Ok(Outcome::Cancelled);
-                    }
-                    Err(e) if e.is_empty() => {},
-                    Err(e) => return Err(e)?,
-                }
-
-                // Increase sleep duration.
-                sleep_duration = min(sleep_duration * 2, MAX_SLEEP_DURATION);
-            }
         });
 
-        Ok(running)
+        // Start the command and return a descriptive error if that failed.
+        let mut child = command.spawn().map_err(|e| {
+            let mut context = format!("failed to spawn `{}`", self.run);
+            if e.kind() == std::io::ErrorKind::NotFound {
+                context += &format!(
+                    " (you probably don't have the command '{}' installed)",
+                    self.run.program,
+                );
+            }
+
+            anyhow::Error::from(e).context(context)
+        })?;
+
+        // Check if the process has finished
+        let status = child.wait().await.context("error running process")?;
+        if status.success() {
+            Ok(Outcome::Success)
+        } else {
+            msg!(warn [ctx]["command"]
+                "{[green]} returned non-zero exit code",
+                self.run,
+            );
+            Ok(Outcome::Failure)
+        }
     }
 }

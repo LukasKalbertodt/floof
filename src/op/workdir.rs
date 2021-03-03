@@ -4,7 +4,7 @@ use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, Outcome, RunningOperation};
+use super::{Operation, Outcome};
 
 
 #[derive(Debug, Clone)]
@@ -18,6 +18,7 @@ impl SetWorkDir {
     pub const KEYWORD: &'static str = "set-workdir";
 }
 
+#[async_trait::async_trait]
 impl Operation for SetWorkDir {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -27,7 +28,7 @@ impl Operation for SetWorkDir {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, ctx: &Context) -> Result<Outcome> {
         let new_workdir = ctx.join_workdir(&self.0);
         if !new_workdir.is_dir() {
             bail!(
@@ -41,6 +42,6 @@ impl Operation for SetWorkDir {
         let dir = WorkDir(new_workdir);
         ctx.top_frame.insert_var(dir);
 
-        Ok(RunningOperation::finished(Outcome::Success))
+        Ok(Outcome::Success)
     }
 }

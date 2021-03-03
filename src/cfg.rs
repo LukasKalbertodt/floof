@@ -11,8 +11,9 @@ use crate::{
     Operation, Task,
     prelude::*,
     op::{
-        Command, Concurrently, Copy, Http, OnChange, Operations, Reload, RunTask,
-        SetWorkDir, Watch,
+        Command, Operations,
+        // Command, Concurrently, Copy, Http, OnChange, Operations, Reload, RunTask,
+        // SetWorkDir, Watch,
     },
 };
 
@@ -159,5 +160,5 @@ macro_rules! impl_deserialize_for_op {
 }
 
 impl_deserialize_for_op![
-    Command, Concurrently, Copy, Http, OnChange, Reload, RunTask, SetWorkDir, Watch,
+    Command//, Concurrently, Copy, Http, OnChange, Reload, RunTask, SetWorkDir, Watch,
 ];

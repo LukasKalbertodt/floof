@@ -23,7 +23,8 @@ pub(crate) use crate::{
 };
 
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     // Read CLI args.
     let args = Args::from_args();
 
@@ -43,7 +44,7 @@ fn main() -> Result<()> {
     let exit_code = match args.cmd {
         None => {
             match ctx.config.tasks.get("default") {
-                Some(task) => task.run(&ctx)?.to_exit_code(),
+                Some(task) => task.run(&ctx).await?.to_exit_code(),
                 None => {
                     eprintln!("No default task defined!");
                     eprintln!("Either define the task 'default' in the configuration or \
@@ -55,7 +56,7 @@ fn main() -> Result<()> {
         Some(args::Command::Run { task }) => {
             // Make sure that all task names exist before starting anything.
             match ctx.config.tasks.get(&task) {
-                Some(task) => task.run(&ctx)?.to_exit_code(),
+                Some(task) => task.run(&ctx).await?.to_exit_code(),
                 None => {
                     eprintln!("Task '{}' not defined in configuration!", task);
                     1
