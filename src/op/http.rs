@@ -1,15 +1,14 @@
 use anyhow::{bail, Error};
 use std::{
     convert::TryFrom,
-    net::{SocketAddr, ToSocketAddrs}, fmt, future::Future, thread, sync::Arc,
+    net::{SocketAddr, ToSocketAddrs}, fmt, future::Future, thread,
 };
-use crossbeam_channel::Sender;
 use serde::Deserialize;
 use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, RunningOperation, Outcome, BUG_CANCEL_DISCONNECTED};
+use super::{Operation, RunningOperation, Outcome};
 
 
 /// An HTTP server able to function as a reverse proxy or static file server.
@@ -18,13 +17,10 @@ use super::{Operation, RunningOperation, Outcome, BUG_CANCEL_DISCONNECTED};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Http {
-    proxy: Option<Addr>,
+    proxy: Option<String>,
     serve: Option<String>,
 
     addr: Option<Addr>,
-
-    #[serde(rename = "ws-addr")]
-    ws_addr: Option<Addr>,
 }
 
 impl Http {
@@ -41,74 +37,50 @@ impl Operation for Http {
     }
 
     fn start(&self, ctx: &Context) -> Result<RunningOperation> {
-        use crate::http::{Server, Mode};
-
         let default_addr: SocketAddr = "127.0.0.1:8030".parse().unwrap();
-        let default_ws_addr: SocketAddr = "127.0.0.1:8031".parse().unwrap();
+
+        let bind_addr = self.addr.map_or(default_addr, |a| a.0);
+        let builder = penguin::Server::bind(bind_addr);
 
         // Prepare configuration for dev server
-        let bind = self.addr.map_or(default_addr, |a| a.0);
-        let bind_control = self.ws_addr.map_or(default_ws_addr, |a| a.0);
-        let mode = match (self.proxy, &self.serve) {
+        let builder = match (&self.proxy, &self.serve) {
             // TODO: actually check that in validation
             (None, None) | (Some(_), Some(_)) => panic!("bug: invalid config"),
-            (Some(proxy_target), None) => Mode::RevProxy { target: proxy_target.0 },
-            (None, Some(_)) => panic!("file server not implemented yet :("),
-        };
-        let callback_ctx = ctx.clone();
-        let callback = Arc::new(move |event| {
-            match event {
-                crate::http::Event::Reload => {
-                    msg!(reload [callback_ctx]["http"] "Reloading all active sessions");
-
-                }
-                _ => {}
+            (Some(proxy_target), None) => {
+                let target = proxy_target.parse().context("invalid proxy target")?;
+                builder.proxy(target)
             }
-        });
-        let config = crate::http::Config { mode, bind, bind_control, callback };
+            (None, Some(path)) => builder.add_mount("/", path).unwrap(),
+        };
+        let (server, controller) = builder.build()?;
+
+
+        //msg!(reload [callback_ctx]["http"] "Reloading all active sessions");
 
         // Setup communication for reload requests.
-        let (reload_tx, reload_rx) = crossbeam_channel::unbounded();
-        ctx.top_frame.insert_var(Reloader(reload_tx));
+        ctx.top_frame.insert_var(Reloader(controller));
 
 
         let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
-            #[tokio::main]
-            async fn runner(f: impl Future<Output = Result<(), crate::http::Error>>) -> Result<()> {
+            #[tokio::main(flavor = "current_thread")]
+            async fn runner(f: impl Future<Output = Result<(), penguin::hyper::Error>>) -> Result<()> {
                 f.await?;
                 Ok(())
             }
 
+            let server: penguin::Server = server;
 
-            let (server, listen) = Server::new(config)?;
 
-            let (server_done_tx, server_done_rx) = crossbeam_channel::bounded(1);
             thread::spawn(move || {
-                let res = runner(listen);
-                server_done_tx.send(res.map(|_| Outcome::Cancelled)).unwrap();
+                // TODO: handle error
+                let _res = runner(server);
             });
 
-            msg!(- [ctx]["http"] "Listening on {$yellow+intense+bold}http://{}{/$}", bind);
+            msg!(- [ctx]["http"] "Listening on {$yellow+intense+bold}http://{}{/$}", bind_addr);
 
-            let unexpected_end_err = "server thread unexpectedly stopped";
-            loop {
-                crossbeam_channel::select! {
-                    recv(reload_rx) -> res => {
-                        res.expect("reloader unexpectedly dropped");
-                        server.reload();
-                    },
-                    recv(server_done_rx) -> outcome => {
-                        let _ = outcome.expect(unexpected_end_err);
-                        panic!("bug: HTTP server should never stop on its own...");
-                    },
-                    recv(cancel_request) -> res => {
-                        res.expect(BUG_CANCEL_DISCONNECTED);
-                        verbose!(- [ctx]["http"] "cancelling HTTP server...");
-                        server.stop();
-                        return server_done_rx.recv().expect(unexpected_end_err);
-                    },
-                }
-            }
+            // TODO: actually stop server when requested
+            cancel_request.recv().unwrap();
+            todo!();
         });
 
         Ok(running)
@@ -116,7 +88,7 @@ impl Operation for Http {
 }
 
 #[derive(Debug, Clone)]
-struct Reloader(Sender<()>);
+struct Reloader(penguin::Controller);
 
 /// Operation to reload the browser sessions of the nearest `http` instance.
 #[derive(Debug, Clone, Deserialize)]
@@ -139,7 +111,7 @@ impl Operation for Reload {
         verbose!(- [ctx]["reload"] "Sent reload request");
         match ctx.get_closest_var::<Reloader>() {
             Some(reloader) => {
-                reloader.0.send(()).expect("bug: reload channel in reloader has hung up");
+                reloader.0.reload();
                 Ok(RunningOperation::finished(Outcome::Success))
             }
             None => {
@@ -170,3 +142,25 @@ impl fmt::Debug for Addr {
         fmt::Display::fmt(&self.0, f)
     }
 }
+
+
+// async fn wait_until_socket_open(target: SocketAddr) -> bool {
+//     const POLL_PERIOD: Duration = Duration::from_millis(20);
+//     const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+//     let start_wait = Instant::now();
+//     while start_wait.elapsed() < PORT_WAIT_TIMEOUT {
+//         let before_connect = Instant::now();
+//         if let Ok(Ok(_)) = tokio::time::timeout(POLL_PERIOD, TcpStream::connect(&target)).await {
+//             return true;
+//         }
+
+//         if let Some(remaining) = POLL_PERIOD.checked_sub(before_connect.elapsed()) {
+//             thread::sleep(remaining);
+//         }
+//     }
+
+//     // TODO: call a callback here
+
+//     false
+// }

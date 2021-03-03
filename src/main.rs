@@ -10,7 +10,6 @@ mod ui;
 mod task;
 mod args;
 mod cfg;
-pub mod http;
 mod op;
 mod prelude;
 mod context;

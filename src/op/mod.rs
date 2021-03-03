@@ -99,7 +99,7 @@ pub struct RunningOperation {
 impl RunningOperation {
     pub fn start<F>(ctx: &Context, op: F) -> Self
     where
-        F: 'static + Send + Sync + FnOnce(&Context, Receiver<()>) -> Result<Outcome>,
+        F: 'static + Send + FnOnce(&Context, Receiver<()>) -> Result<Outcome>,
     {
         let (cancel_tx, cancel_rx) = crossbeam_channel::bounded(0);
         let (outcome_tx, outcome_rx) = crossbeam_channel::bounded(1);
