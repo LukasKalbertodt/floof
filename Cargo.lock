@@ -743,9 +743,9 @@ dependencies = [
 
 [[package]]
 name = "penguin"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81f07d2599bc9b51ce537a4260904513c75d360eb2b2f317d6aaf9ff24e20baf"
+checksum = "3348eadf67b7d125cb0eb4bae33a497db9cd6354f65cdf662db67d5cb04f1e69"
 dependencies = [
  "futures",
  "hyper",

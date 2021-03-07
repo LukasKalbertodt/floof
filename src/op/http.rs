@@ -1,9 +1,6 @@
 use anyhow::{bail, Error};
-use std::{
-    convert::TryFrom,
-    fmt,
-    net::{SocketAddr, ToSocketAddrs},
-};
+use penguin::ProxyTarget;
+use std::{convert::TryFrom, fmt, net::{SocketAddr, ToSocketAddrs}, time::Duration};
 use serde::Deserialize;
 use crate::{
     Context,
@@ -45,34 +42,33 @@ impl Operation for Http {
         let builder = penguin::Server::bind(bind_addr);
 
         // Prepare configuration for dev server
-        let builder = match (&self.proxy, &self.serve) {
+        let proxy = self.proxy.as_ref()
+            .map(|s| s.parse::<ProxyTarget>())
+            .transpose()?;
+
+        let builder = match (&proxy, &self.serve) {
             // TODO: actually check that in validation
             (None, None) | (Some(_), Some(_)) => panic!("bug: invalid config"),
-            (Some(proxy_target), None) => {
-                let target = proxy_target.parse().context("invalid proxy target")?;
-                builder.proxy(target)
-            }
+            (Some(target), None) => builder.proxy(target.clone()),
             (None, Some(path)) => builder.add_mount("/", path).unwrap(),
         };
         let (server, controller) = builder.build()?;
 
-
-        //msg!(reload [callback_ctx]["http"] "Reloading all active sessions");
-
         // Setup communication for reload requests.
-        ctx.top_frame.insert_var(Reloader(controller));
+        ctx.top_frame.insert_var(Reloader { controller, proxy });
 
         msg!(- [ctx]["http"] "Listening on {$yellow+intense+bold}http://{}{/$}", bind_addr);
         server.await?;
-
-        // TODO: actually stop server when requested
 
         Ok(Outcome::Success)
     }
 }
 
 #[derive(Debug, Clone)]
-struct Reloader(penguin::Controller);
+struct Reloader {
+    controller: penguin::Controller,
+    proxy: Option<ProxyTarget>,
+}
 
 /// Operation to reload the browser sessions of the nearest `http` instance.
 #[derive(Debug, Clone, Deserialize)]
@@ -93,10 +89,12 @@ impl Operation for Reload {
     }
 
     async fn run(&self, ctx: &Context) -> Result<Outcome> {
-        verbose!(- [ctx]["reload"] "Sent reload request");
         match ctx.get_closest_var::<Reloader>() {
             Some(reloader) => {
-                reloader.0.reload();
+                let ctx = ctx.clone();
+                tokio::task::spawn(async {
+                    reload_async(reloader, ctx).await
+                });
                 Ok(Outcome::Success)
             }
             None => {
@@ -105,6 +103,28 @@ impl Operation for Reload {
             }
         }
     }
+}
+
+async fn reload_async(reloader: Reloader, ctx: Context) {
+    const POLL_PERIOD: Duration = Duration::from_millis(100);
+    const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+
+    if let Some(proxy) = reloader.proxy {
+        verbose!(- [ctx]["reload"] "About to reload, but waiting for proxy to get ready");
+        let port_ready = tokio::time::timeout(
+            PORT_WAIT_TIMEOUT,
+            penguin::util::wait_for_proxy(&proxy, POLL_PERIOD),
+        ).await;
+
+        if port_ready.is_err() {
+            msg!(warn [ctx]["http"] "Proxy port did not open: not reloading");
+            return;
+        }
+    }
+
+    msg!(reload [ctx]["http"] "Reloading all active sessions");
+    reloader.controller.reload();
 }
 
 /// Wrapper around `SocketAddr` that nicely deserializes.
@@ -127,25 +147,3 @@ impl fmt::Debug for Addr {
         fmt::Display::fmt(&self.0, f)
     }
 }
-
-
-// async fn wait_until_socket_open(target: SocketAddr) -> bool {
-//     const POLL_PERIOD: Duration = Duration::from_millis(20);
-//     const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-
-//     let start_wait = Instant::now();
-//     while start_wait.elapsed() < PORT_WAIT_TIMEOUT {
-//         let before_connect = Instant::now();
-//         if let Ok(Ok(_)) = tokio::time::timeout(POLL_PERIOD, TcpStream::connect(&target)).await {
-//             return true;
-//         }
-
-//         if let Some(remaining) = POLL_PERIOD.checked_sub(before_connect.elapsed()) {
-//             thread::sleep(remaining);
-//         }
-//     }
-
-//     // TODO: call a callback here
-
-//     false
-// }
