@@ -27,6 +27,7 @@ impl Operation for Copy {
     }
 
     async fn run(&self, _ctx: &Context) -> Result<Outcome> {
-        todo!()
+        tokio::fs::copy(&self.src, &self.dst).await?;
+        Ok(Outcome::Success)
     }
 }
