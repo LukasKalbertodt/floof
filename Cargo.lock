@@ -207,6 +207,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bunt",
+ "futures",
  "notify",
  "once_cell",
  "penguin",

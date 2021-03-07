@@ -3,8 +3,7 @@ use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, Operations, Outcome, RunningOperation, OP_NO_OUTCOME_ERROR, BUG_CANCEL_DISCONNECTED};
-use crossbeam_channel::Select;
+use super::{Operation, Operations, Outcome};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14,6 +13,7 @@ impl Concurrently {
     pub const KEYWORD: &'static str = "concurrently";
 }
 
+#[async_trait::async_trait]
 impl Operation for Concurrently {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -23,54 +23,23 @@ impl Operation for Concurrently {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, ctx: &Context) -> Result<Outcome> {
         let op_ctx = ctx.fork_op(Self::KEYWORD);
-        let operations = self.0.clone();
 
-        let running = RunningOperation::start(&op_ctx, move |ctx, cancel_request| {
-            let mut running_ops = operations.iter()
-                .map(|op| op.start(ctx))
-                .collect::<Result<Vec<_>>>()?;
+        let mut running_ops = self.0.iter()
+            .map(|op| op.run(&op_ctx))
+            .collect::<Vec<_>>();
 
-            while !running_ops.is_empty() {
-                let mut select = Select::new();
-                for (i, running) in running_ops.iter().enumerate() {
-                    let index = select.recv(running.outcome());
-                    assert_eq!(i, index);
-                }
+        while !running_ops.is_empty() {
+            let (outcome, _, remaining) = futures::future::select_all(running_ops).await;
+            running_ops = remaining;
 
-                let cancel_index = select.recv(&cancel_request);
-
-                let select_op = select.select();
-                let index = select_op.index();
-
-                if index == cancel_index {
-                    // This operation was cancelled. We don't need the data, but
-                    // we should receive from the channel anyway.
-                    select_op.recv(&cancel_request).expect(BUG_CANCEL_DISCONNECTED);
-
-                    // Cancel all child operations!
-                    for running in &mut running_ops {
-                        running.cancel()?;
-                    }
-
-                    return Ok(Outcome::Cancelled);
-                } else {
-                    // One of the operation finished! Receive its outcome.
-                    let outcome = select_op.recv(running_ops[index].outcome())
-                        .expect(OP_NO_OUTCOME_ERROR)?;
-
-                    if !outcome.is_success() {
-                        return Ok(outcome);
-                    }
-
-                    running_ops.swap_remove(index);
-                }
+            let outcome = outcome?;
+            if !outcome.is_success() {
+                return Ok(outcome);
             }
+        }
 
-            Ok(Outcome::Success)
-        });
-
-        Ok(running)
+        Ok(Outcome::Success)
     }
 }

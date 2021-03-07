@@ -3,7 +3,8 @@ use crate::{
     Config,
     prelude::*,
 };
-use super::{Operation, Outcome, RunningOperation, ParentKind, OP_NO_OUTCOME_ERROR};
+use super::{Operation, Outcome, ParentKind};
+
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunTask(String);
@@ -12,6 +13,7 @@ impl RunTask {
     pub const KEYWORD: &'static str = "run-task";
 }
 
+#[async_trait::async_trait]
 impl Operation for RunTask {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -21,34 +23,19 @@ impl Operation for RunTask {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, ctx: &Context) -> Result<Outcome> {
         let task_name = self.0.clone();
-        let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
-            let task = &ctx.config.tasks[&task_name];
+        let task = &ctx.config.tasks[&task_name];
 
-            let op_ctx = ctx.fork_task(&task_name);
-            for op in &task.operations {
-                let mut running = op.start(&op_ctx)?;
-                crossbeam_channel::select! {
-                    recv(running.outcome()) -> outcome => {
-                        let outcome = outcome.expect(OP_NO_OUTCOME_ERROR)?;
-                        if !outcome.is_success() {
-                            return Ok(outcome);
-                        }
-                    }
-                    recv(cancel_request) -> result => {
-                        result.expect(OP_NO_OUTCOME_ERROR);
-                        running.cancel()?;
-                        return Ok(Outcome::Cancelled)
-                    }
-                }
+        let op_ctx = ctx.fork_task(&task_name);
+        for op in &task.operations {
+            let outcome = op.run(&op_ctx).await?;
+            if !outcome.is_success() {
+                return Ok(outcome);
             }
+        }
 
-            Ok(Outcome::Success)
-
-        });
-
-        Ok(running)
+        Ok(Outcome::Success)
     }
 
     fn validate(&self, _parent: ParentKind<'_>, config: &Config) -> Result<()> {

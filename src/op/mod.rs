@@ -3,19 +3,19 @@ use anyhow::Result;
 use crate::prelude::*;
 
 mod command;
-// mod concurrently;
-// mod copy;
-// mod http;
-// mod run_task;
+mod concurrently;
+mod copy;
+mod http;
+mod run_task;
 mod watch;
 mod workdir;
 
 pub use self::{
     command::Command,
-//     concurrently::Concurrently,
-//     copy::Copy,
-//     http::{Http, Reload},
-//     run_task::RunTask,
+    concurrently::Concurrently,
+    copy::Copy,
+    http::{Http, Reload},
+    run_task::RunTask,
     watch::{OnChange, Watch},
     workdir::{WorkDir, SetWorkDir},
 };

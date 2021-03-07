@@ -1,14 +1,15 @@
 use anyhow::{bail, Error};
 use std::{
     convert::TryFrom,
-    net::{SocketAddr, ToSocketAddrs}, fmt, future::Future, thread,
+    fmt,
+    net::{SocketAddr, ToSocketAddrs},
 };
 use serde::Deserialize;
 use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, RunningOperation, Outcome};
+use super::{Operation, Outcome};
 
 
 /// An HTTP server able to function as a reverse proxy or static file server.
@@ -27,6 +28,7 @@ impl Http {
     pub const KEYWORD: &'static str = "http";
 }
 
+#[async_trait::async_trait]
 impl Operation for Http {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -36,7 +38,7 @@ impl Operation for Http {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, ctx: &Context) -> Result<Outcome> {
         let default_addr: SocketAddr = "127.0.0.1:8030".parse().unwrap();
 
         let bind_addr = self.addr.map_or(default_addr, |a| a.0);
@@ -60,30 +62,12 @@ impl Operation for Http {
         // Setup communication for reload requests.
         ctx.top_frame.insert_var(Reloader(controller));
 
+        msg!(- [ctx]["http"] "Listening on {$yellow+intense+bold}http://{}{/$}", bind_addr);
+        server.await?;
 
-        let running = RunningOperation::start(ctx, move |ctx, cancel_request| {
-            #[tokio::main(flavor = "current_thread")]
-            async fn runner(f: impl Future<Output = Result<(), penguin::hyper::Error>>) -> Result<()> {
-                f.await?;
-                Ok(())
-            }
+        // TODO: actually stop server when requested
 
-            let server: penguin::Server = server;
-
-
-            thread::spawn(move || {
-                // TODO: handle error
-                let _res = runner(server);
-            });
-
-            msg!(- [ctx]["http"] "Listening on {$yellow+intense+bold}http://{}{/$}", bind_addr);
-
-            // TODO: actually stop server when requested
-            cancel_request.recv().unwrap();
-            todo!();
-        });
-
-        Ok(running)
+        Ok(Outcome::Success)
     }
 }
 
@@ -98,6 +82,7 @@ impl Reload {
     pub const KEYWORD: &'static str = "reload";
 }
 
+#[async_trait::async_trait]
 impl Operation for Reload {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -107,12 +92,12 @@ impl Operation for Reload {
         Box::new(self.clone())
     }
 
-    fn start(&self, ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, ctx: &Context) -> Result<Outcome> {
         verbose!(- [ctx]["reload"] "Sent reload request");
         match ctx.get_closest_var::<Reloader>() {
             Some(reloader) => {
                 reloader.0.reload();
-                Ok(RunningOperation::finished(Outcome::Success))
+                Ok(Outcome::Success)
             }
             None => {
                 bail!("`reload` operation started, but no HTTP server registered in this \

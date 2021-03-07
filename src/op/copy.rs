@@ -3,7 +3,7 @@ use crate::{
     Context,
     prelude::*,
 };
-use super::{Operation, RunningOperation};
+use super::{Operation, Outcome};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,6 +16,7 @@ impl Copy {
     pub const KEYWORD: &'static str = "copy";
 }
 
+#[async_trait::async_trait]
 impl Operation for Copy {
     fn keyword(&self) -> &'static str {
         Self::KEYWORD
@@ -25,7 +26,7 @@ impl Operation for Copy {
         Box::new(self.clone())
     }
 
-    fn start(&self, _ctx: &Context) -> Result<RunningOperation> {
+    async fn run(&self, _ctx: &Context) -> Result<Outcome> {
         todo!()
     }
 }
