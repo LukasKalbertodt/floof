@@ -90,7 +90,7 @@ impl Operation for Watch {
         // world is to send them through a channel. Once the `watcher` is
         // dropped, it no longer watches anything.
         let (watch_event_tx, mut watch_events) = watch::channel(());
-        let mut watcher = RecommendedWatcher::new_immediate(move |_ev| {
+        let mut watcher = RecommendedWatcher::new(move |_ev| {
             watch_event_tx.send(()).expect("bug: executor thread unexpectedly ended");
         })?;
 
