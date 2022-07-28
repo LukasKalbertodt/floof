@@ -1,6 +1,32 @@
 Floof
 =====
 
+## Floof is not developed anymore!
+
+> Take a look at [penguin](https://github.com/LukasKalbertodt/penguin) instead! It provides the dev-server that floof used.
+
+The main reason I have given up on this project is that I now think that build scripts should be written in some kind of real scripting/programming language. 
+And not as a YAML file, where floof defines a really bad "scripting language" on top.
+
+I worked with floof for quite a while, always making adjustments to its "language"/syntax/format. 
+And I certainly liked some aspects of it. 
+But I always found myself wanting more ways to abstract or deduplicate logic. 
+And even with "tasks" in floof that could be called by other tasks, that would still come up a lot. 
+And I would want to do lots of things that floof just could not yet do.
+So either I had to implement it in floof, making it larger, or call external programs.
+Using a real, established programming/scripting language solves most of these problems.
+
+Also, floof just turned out to be quite a large project.
+And I already have more projects than I can chew!
+So I need to stop spending times on the ones that are not that important to me.
+
+
+<br>
+
+---
+
+## Old README
+
 [<img alt="CI status of master" src="https://img.shields.io/github/workflow/status/LukasKalbertodt/floof/CI/master?label=CI&logo=github&logoColor=white&style=for-the-badge" height="23">](https://github.com/LukasKalbertodt/floof/actions?query=workflow%3ACI+branch%3Amaster)
 [<img alt="Crates.io Version" src="https://img.shields.io/crates/v/floof?logo=rust&style=for-the-badge" height="23">](https://crates.io/crates/floof)
 <img alt="Crates.io Downloads" src="https://img.shields.io/crates/d/floof?color=%233498db&label=crates.io%20downloads&style=for-the-badge" height="23">
